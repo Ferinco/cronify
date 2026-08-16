@@ -10,12 +10,6 @@ export type {
 const ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
 const CRON_FIELD_COUNT = 5;
 
-/**
- * Declares a cron job. `id` and `schedule` must be static string literals —
- * cronify's CLI reads them via static analysis at build time and never
- * executes this file, so it never needs your handler's runtime dependencies
- * or env vars just to generate routes and the manifest.
- */
 export function defineJob(options: DefineJobOptions): JobDefinition {
   if (!options.id || !ID_PATTERN.test(options.id)) {
     throw new Error(

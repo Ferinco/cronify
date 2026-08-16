@@ -51,7 +51,6 @@ function readPreviousManifest(root: string): Manifest | null {
   }
 }
 
-/** Removes generated routes for jobs that disappeared, but only files we recognize as our own. */
 function removeStaleRoutes(appDir: string, previous: Manifest | null, currentIds: Set<string>): string[] {
   if (!previous) return [];
   const removed: string[] = [];
@@ -67,11 +66,6 @@ function removeStaleRoutes(appDir: string, previous: Manifest | null, currentIds
   return removed;
 }
 
-/**
- * Discovers jobs under `<root>/cron`, writes a route file per job under the
- * App Router directory, removes routes for jobs that were removed since the
- * last run, and writes `.cron-manifest.json`. Idempotent — safe to rerun.
- */
 export function generate(root: string = process.cwd()): GenerateResult {
   const cronDir = join(root, "cron");
   if (!existsSync(cronDir)) {

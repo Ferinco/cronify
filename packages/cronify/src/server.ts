@@ -18,12 +18,6 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-/**
- * Builds the GET/POST handlers for a job's Next.js route. Verifies the
- * CRON_SECRET bearer token, runs the handler, and reports success/failure
- * as JSON. Retries and overlap protection live in the scheduler, not here —
- * this route just needs to be a faithful, single-attempt trigger.
- */
 export function createRouteHandler(job: JobDefinition): { GET: RouteHandler; POST: RouteHandler } {
   const handler: RouteHandler = async (request) => {
     const secret = process.env.CRON_SECRET;

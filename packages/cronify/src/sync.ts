@@ -4,13 +4,9 @@ import { join } from "node:path";
 import { generate } from "./generate.js";
 
 export interface SyncOptions {
-  /** Scheduler base URL, e.g. https://cronify.example.com */
   target: string;
-  /** Deployed app base URL the scheduler should POST to, e.g. https://myapp.vercel.app */
   appUrl: string;
-  /** Scheduler admin token (CRONIFY_ADMIN_TOKEN on the scheduler). */
   token: string;
-  /** Groups jobs on the scheduler when it serves multiple apps. Defaults to package.json "name". */
   source?: string;
   root?: string;
 }
@@ -32,11 +28,6 @@ function resolveSource(root: string, explicit?: string): string {
   );
 }
 
-/**
- * Regenerates routes + manifest, then POSTs the manifest to the scheduler's
- * sync endpoint, which reconciles (creates/updates/deletes) jobs for this
- * `source` in one call.
- */
 export async function sync(options: SyncOptions): Promise<unknown> {
   const root = options.root ?? process.cwd();
   const { manifest } = generate(root);

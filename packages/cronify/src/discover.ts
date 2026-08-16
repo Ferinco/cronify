@@ -6,7 +6,6 @@ import ts from "typescript";
 import { DEFAULT_MAX_ATTEMPTS, DEFAULT_TIMEOUT_SECONDS, type ManifestJobEntry } from "./types.js";
 
 export interface DiscoveredJob extends ManifestJobEntry {
-  /** Absolute path to the file whose default export is this job. */
   sourceFile: string;
 }
 
@@ -38,7 +37,6 @@ function literalToValue(node: ts.Expression): Literal {
   return undefined;
 }
 
-/** Finds `export default defineJob({...})` — the only supported shape. */
 function findDefaultExportedDefineJobCall(sourceFile: ts.SourceFile): ts.CallExpression | null {
   for (const statement of sourceFile.statements) {
     if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
@@ -54,7 +52,6 @@ function findDefaultExportedDefineJobCall(sourceFile: ts.SourceFile): ts.CallExp
   return null;
 }
 
-/** True if `defineJob(...)` is called anywhere in the file but not as the default export. */
 function hasNonDefaultDefineJobCall(sourceFile: ts.SourceFile): boolean {
   let found = false;
   function visit(node: ts.Node) {
@@ -73,12 +70,6 @@ function hasNonDefaultDefineJobCall(sourceFile: ts.SourceFile): boolean {
   return found;
 }
 
-/**
- * Scans `cronDir` for files of the form `export default defineJob({...})` and
- * extracts job metadata via the TypeScript AST — id, schedule, and the other
- * options must be literals. This never executes the file: the handler and any
- * of its runtime imports/env vars are irrelevant to route generation.
- */
 export function discoverJobs(cronDir: string): DiscoveredJob[] {
   const files = walk(cronDir);
   const jobs: DiscoveredJob[] = [];
