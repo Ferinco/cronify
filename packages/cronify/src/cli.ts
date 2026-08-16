@@ -17,6 +17,9 @@ Options for sync:
   --token <token>      Scheduler admin token (or CRONIFY_ADMIN_TOKEN)
   --source <name>      Group name for these jobs (default: package.json "name")
 
+  CRON_SECRET must be set in the environment — the same secret your deployed
+  routes check. It isn't a CLI flag so it never appears in shell history/ps.
+
   -h, --help            Show this help
 `);
 }
@@ -53,12 +56,14 @@ async function main(): Promise<void> {
     const target = values.target ?? process.env.CRONIFY_SCHEDULER_URL;
     const appUrl = values["app-url"] ?? process.env.CRONIFY_APP_URL;
     const token = values.token ?? process.env.CRONIFY_ADMIN_TOKEN;
+    const cronSecret = process.env.CRON_SECRET;
 
     if (!target) throw new Error("cronify sync: missing --target (or set CRONIFY_SCHEDULER_URL)");
     if (!appUrl) throw new Error("cronify sync: missing --app-url (or set CRONIFY_APP_URL)");
     if (!token) throw new Error("cronify sync: missing --token (or set CRONIFY_ADMIN_TOKEN)");
+    if (!cronSecret) throw new Error("cronify sync: missing CRON_SECRET (set it in your app's environment)");
 
-    const result = await sync({ target, appUrl, token, source: values.source });
+    const result = await sync({ target, appUrl, token, cronSecret, source: values.source });
     console.log("cronify: sync complete.");
     console.log(JSON.stringify(result, null, 2));
     return;
