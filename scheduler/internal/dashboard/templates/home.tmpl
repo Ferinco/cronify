@@ -1,0 +1,58 @@
+{{define "content"}}
+<h1>Jobs</h1>
+{{if not .Jobs}}
+<p class="empty">No jobs registered yet. Run <span class="mono">cronify sync</span> from an app to register some.</p>
+{{else}}
+<table>
+  <thead>
+    <tr>
+      <th>Job</th>
+      <th>Source</th>
+      <th>Schedule</th>
+      <th>Next run</th>
+      <th>Last run</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Jobs}}
+    <tr>
+      <td><a href="/jobs/{{.Job.ID}}">{{.Job.JobID}}</a></td>
+      <td class="muted">{{.Job.Source}}</td>
+      <td class="mono">{{.Job.Schedule}}</td>
+      <td>
+        {{if .Job.Enabled}}
+          <span title="{{rfc3339 .Job.NextRunAt}}">{{relativeTime .Job.NextRunAt}}</span>
+        {{else}}
+          <span class="badge badge-paused">Paused</span>
+        {{end}}
+      </td>
+      <td>
+        {{if .HasRun}}
+          <span class="badge badge-{{.LastStatus}}">{{.LastStatus}}</span>
+          <span class="muted" title="{{rfc3339 .LastRunAt}}">{{relativeTime .LastRunAt}}</span>
+        {{else}}
+          <span class="badge badge-none">never run</span>
+        {{end}}
+      </td>
+      <td class="actions">
+        <form class="inline" method="post" action="/jobs/{{.Job.ID}}/run">
+          <button type="submit">Run now</button>
+        </form>
+        {{if .Job.Enabled}}
+        <form class="inline" method="post" action="/jobs/{{.Job.ID}}/pause">
+          <button type="submit">Pause</button>
+        </form>
+        {{else}}
+        <form class="inline" method="post" action="/jobs/{{.Job.ID}}/resume">
+          <button type="submit">Resume</button>
+        </form>
+        {{end}}
+        <a class="btn" href="/jobs/{{.Job.ID}}/delete">Delete</a>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}
