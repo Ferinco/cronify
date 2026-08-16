@@ -23,6 +23,11 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
       "require": "./dist/server.cjs"
+    },
+    "./lock": {
+      "types": "./dist/lock.d.ts",
+      "import": "./dist/lock.js",
+      "require": "./dist/lock.cjs"
     }
   },
   "files": [

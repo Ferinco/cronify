@@ -29,8 +29,8 @@ cronify/
 Build order (each step independently useful, per SPEC.md): (1) `defineJob()`
 + route generation, (2) standalone `withLock()` primitive, (3) the scheduler,
 (4) the dashboard, (5) Docker + one-click deploy buttons. **Currently at the
-end of step 1** — `packages/cronify` is built and tested; `withLock()`,
-scheduler, dashboard, and packaging have not been started.
+end of step 2** — `packages/cronify` (including `withLock()`) is built and
+tested; scheduler, dashboard, and packaging have not been started.
 
 ## Resolved design decisions
 
@@ -151,6 +151,36 @@ imports or env vars just to generate routes/manifest.
 
 MIT (see [`LICENSE`](LICENSE)).
 
+### `withLock()`, concretely (`packages/cronify/src/lock.ts`, entry `cronify/lock`)
+
+A standalone helper — decoupled from `defineJob()`/the scheduler — for
+overlap protection when there's no self-hosted scheduler yet (e.g. pinging a
+route with Vercel Cron or GitHub Actions).
+
+```ts
+interface LockStore {
+  acquire(key: string, token: string, ttlSeconds: number): Promise<boolean>;
+  release(key: string, token: string): Promise<void>;
+}
+```
+
+`withLock(handler, { key, store, ttlSeconds = 300, onLocked = "skip" })`
+generates a random token per invocation, acquires before running the
+handler, releases in a `finally`. `release` only deletes if the stored value
+still matches the token that call acquired (fencing) — a plain unconditional
+delete would let a slow, still-running call release a different call's lock
+after its own TTL expired and someone else reclaimed it. `onLocked: "skip"`
+(default) silently no-ops when the lock is held; `"throw"` raises
+`LockHeldError`.
+
+Ships two `LockStore` implementations: `createMemoryLockStore()`
+(in-process, for local dev only — useless across separate serverless
+invocations) and `createFileLockStore({ dir? })` (file-based, single
+self-hosted machine, not safe across multiple machines). Redis/Vercel KV are
+not bundled — deliberately, to avoid picking a client dependency — but plug
+into the same two-method interface; documented with an example in
+`packages/cronify/README.md`.
+
 ## `packages/cronify` — implementation notes
 
 ```
@@ -158,12 +188,13 @@ packages/cronify/
 ├── src/
 │   ├── index.ts       defineJob() + validation — package entry "cronify"
 │   ├── server.ts       createRouteHandler() — entry "cronify/server"
+│   ├── lock.ts           withLock() + LockStore + memory/file stores — entry "cronify/lock"
 │   ├── discover.ts     AST-based job discovery (never executes job files)
 │   ├── generate.ts      writes route files + .cron-manifest.json, idempotent
 │   ├── sync.ts           regenerate + POST to scheduler /api/v1/sync
 │   ├── cli.ts             `cronify generate` / `cronify sync` bin
 │   └── types.ts          shared types + defaults
-└── test/                 vitest, one file per src module, 26 tests
+└── test/                 vitest, one file per src module, 39 tests
 ```
 
 Notable choices, in case they look surprising later:
@@ -197,7 +228,7 @@ Build/test commands (run from `packages/cronify/`):
 ```sh
 npm install
 npm run build       # tsup -> dist/ (esm + cjs + .d.ts)
-npm test            # vitest, 26 tests passing as of this writing
+npm test            # vitest, 39 tests passing as of this writing
 npm run typecheck
 ```
 
@@ -210,9 +241,7 @@ token.
 
 ## Next steps
 
-Per the approved build order: `withLock()` standalone primitive, then the Go
-scheduler (tick loop, SQLite, the `/api/v1/*` API above, retry/locking logic
-per the numbers above), then the bundled dashboard, then Docker + one-click
-deploy buttons. The user asked to stop after `packages/cronify` for review
-before starting the Go scheduler — don't start scheduler work without
-checking in first.
+Per the approved build order: the Go scheduler (tick loop, SQLite, the
+`/api/v1/*` API above, retry/locking logic per the numbers above), then the
+bundled dashboard, then Docker + one-click deploy buttons. Don't start
+scheduler work without checking in with the user first.

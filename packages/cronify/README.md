@@ -70,11 +70,63 @@ Flags can also come from env vars: `CRONIFY_SCHEDULER_URL`, `CRONIFY_APP_URL`,
 `CRONIFY_ADMIN_TOKEN`. `--source` (default: your `package.json` `"name"`)
 groups jobs when one scheduler serves multiple apps.
 
+## `withLock()` — overlap protection without the scheduler
+
+Wrap a handler to stop two invocations from running at once, even if you're
+pinging the route with Vercel Cron or GitHub Actions instead of the cronify
+scheduler:
+
+```ts
+import { defineJob } from "cronify";
+import { withLock, createFileLockStore } from "cronify/lock";
+
+const store = createFileLockStore(); // single self-hosted instance
+
+export default defineJob({
+  id: "daily-report",
+  schedule: "0 9 * * *",
+  handler: withLock(
+    async () => {
+      // your logic
+    },
+    { key: "daily-report", store },
+  ),
+});
+```
+
+Built-in stores:
+
+- `createMemoryLockStore()` — in-process only. Fine for local dev/tests, not
+  useful across separate serverless invocations.
+- `createFileLockStore({ dir? })` — file-based, for a single self-hosted
+  machine without Redis. Not safe across multiple machines.
+
+For Redis, Vercel KV, or anything else, implement the two-method `LockStore`
+interface yourself:
+
+```ts
+interface LockStore {
+  acquire(key: string, token: string, ttlSeconds: number): Promise<boolean>;
+  release(key: string, token: string): Promise<void>;
+}
+```
+
+`acquire` must be an atomic set-if-absent-or-expired with a TTL (e.g. Redis
+`SET key token NX PX ttlMs`). `release` must only delete the key if its
+current value equals `token` (e.g. a Lua script doing `GET` then `DEL`) — a
+plain unconditional delete would let a slow, still-running call release a
+different call's lock after its own lock expired.
+
+`withLock` options: `ttlSeconds` (default 300), `onLocked: "skip" | "throw"`
+(default `"skip"` — silently returns without running the handler; `"throw"`
+raises `LockHeldError`).
+
 ## Package layout
 
 - `defineJob()` / types — the `cronify` entry point (`src/index.ts`)
 - `createRouteHandler()` — the `cronify/server` entry point (`src/server.ts`),
   used by generated route files
+- `withLock()` / lock stores — the `cronify/lock` entry point (`src/lock.ts`)
 - `discoverJobs()` — AST-based job discovery, never executes your files
   (`src/discover.ts`)
 - `generate()` — writes routes + manifest (`src/generate.ts`)

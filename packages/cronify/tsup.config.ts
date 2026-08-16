@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     server: "src/server.ts",
+    lock: "src/lock.ts",
     cli: "src/cli.ts",
   },
   format: ["esm", "cjs"],
