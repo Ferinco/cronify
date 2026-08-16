@@ -30,6 +30,12 @@
       "require": "./dist/lock.cjs"
     }
   },
+  "typesVersions": {
+    "*": {
+      "server": ["dist/server.d.ts"],
+      "lock": ["dist/lock.d.ts"]
+    }
+  },
   "files": [
     "dist"
   ],

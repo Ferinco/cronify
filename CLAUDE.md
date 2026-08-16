@@ -226,6 +226,18 @@ Notable choices, in case they look surprising later:
   package's own dependency footprint small was treated as in keeping with
   the project's overall self-hosting-simplicity ethos (same reasoning SPEC.md
   gives for choosing Go for the scheduler).
+- **`package.json` has a `typesVersions` field** mapping `server`/`lock` to
+  their `.d.ts` files. Without it, `cronify/server` and `cronify/lock`
+  type-check fine under `moduleResolution: "bundler"`/`"node16"`/`"nodenext"`
+  (which read the `exports` map's `types` condition) but fail with "Cannot
+  find module ... or its corresponding type declarations" under the legacy
+  `"node"` algorithm, which predates `exports` and ignores it entirely.
+  Found by actually running `next build` in a fresh app with no
+  hand-authored `tsconfig.json`: Next.js's own auto-generated default is
+  `moduleResolution: "node"`, so this wasn't a theoretical edge case — a
+  brand-new project hits it immediately. `typesVersions` is the standard
+  backward-compat mechanism for exactly this; verified fixed by rebuilding
+  the same fixture after adding it.
 
 Build/test commands (run from `packages/cronify/`):
 
