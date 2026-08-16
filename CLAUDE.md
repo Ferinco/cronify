@@ -20,7 +20,7 @@ independently):
 ```
 cronify/
 ├── packages/cronify/   TypeScript — defineJob(), route generation, CLI  [BUILT]
-├── scheduler/          Go — tick loop, SQLite, retries, locking, API, dashboard [NOT STARTED]
+├── scheduler/          Go — tick loop, SQLite, retries, locking, API [BUILT]; dashboard [NOT STARTED]
 ├── site/                Next.js — marketing one-pager [NOT STARTED]
 ├── SPEC.md
 └── CLAUDE.md
@@ -29,8 +29,9 @@ cronify/
 Build order (each step independently useful, per SPEC.md): (1) `defineJob()`
 + route generation, (2) standalone `withLock()` primitive, (3) the scheduler,
 (4) the dashboard, (5) Docker + one-click deploy buttons. **Currently at the
-end of step 2** — `packages/cronify` (including `withLock()`) is built and
-tested; scheduler, dashboard, and packaging have not been started.
+end of step 3** — `packages/cronify` (including `withLock()`) and the Go
+scheduler (tick loop, SQLite, retries, locking, full `/api/v1/*` API) are
+built and tested; the dashboard and Docker packaging have not been started.
 
 ## Resolved design decisions
 
@@ -61,20 +62,30 @@ Deliberately has no host/`appUrl` — that's supplied at `sync` time
 (`--app-url` / `CRONIFY_APP_URL`), so the manifest is identical across
 environments.
 
-### API contract (Go scheduler, not yet built)
+### API contract (Go scheduler, `scheduler/internal/api`)
 
-All under `/api/v1/*`, auth via `Authorization: Bearer <CRONIFY_ADMIN_TOKEN>`:
+All under `/api/v1/*`, auth via `Authorization: Bearer <CRONIFY_ADMIN_TOKEN>`
+(`/healthz` excepted):
 
-- `POST /api/v1/sync` — body `{ source, appUrl, jobs: [...] }`. Full
-  reconciliation for that `source`: upserts jobs present, deletes jobs
+- `POST /api/v1/sync` — body `{ source, appUrl, cronSecret, jobs: [...] }`.
+  Full reconciliation for that `source`: upserts jobs present, deletes jobs
   missing. This is what `cronify sync` calls — one call, no client-side
   diffing. `source` lets one scheduler serve multiple apps; the CLI defaults
-  it to the app's `package.json` `"name"`.
+  it to the app's `package.json` `"name"`. `cronSecret` is `CRON_SECRET` from
+  the app's own environment (see "Secret/auth mechanism" below for why it
+  travels here). Response: `{created, updated, deleted, unchanged}`.
 - `GET /api/v1/jobs`, `GET /api/v1/jobs/:id`, `GET /api/v1/jobs/:id/runs`
-- `POST /api/v1/jobs/:id/run` — manual trigger
+  (`?limit=`, default 50)
+- `POST /api/v1/jobs/:id/run` — manual trigger. Claims the lock synchronously
+  (so the response can include the run id) and runs the attempt/backoff
+  sequence in the background: `202 {status:"triggered", runId}`, or
+  `409 {status:"lock_held"}` if a run is already in progress. Poll
+  `GET /api/v1/jobs/:id/runs` for the outcome.
 - `POST /api/v1/jobs/:id/pause` / `/resume`
-- `DELETE /api/v1/jobs/:id`
-- `GET /healthz`
+- `DELETE /api/v1/jobs/:id` — job config only; `job_runs` history for that
+  job is kept (no FK/cascade), including deletions caused by `sync`
+  reconciliation.
+- `GET /healthz` — no auth
 
 ### Retry policy, numerically
 
@@ -107,6 +118,19 @@ manual "run now"). If found and `now - started_at < staleLockTimeoutSeconds`
 lock"`), reclaim, and proceed. Default `staleLockTimeoutSeconds: 600`, must
 be ≥ the job's timeout, configurable per job.
 
+`job_id` in this table is the scheduler's internal composite id
+(`source + "::" + jobId`, see `jobs` table below) — not the bare per-app id —
+since `source` exists specifically so one scheduler can serve multiple apps,
+and job ids come from filenames in each app's own `cron/` dir. A bare global
+id would risk two unrelated apps' same-named jobs (e.g. both called
+`daily-report`) silently colliding.
+
+The wire payload has no per-job `staleLockTimeoutSeconds` today (not part of
+`ManifestJobEntry`), so the effective value is
+`max(CRONIFY_STALE_LOCK_TIMEOUT_SECONDS, job.timeoutSeconds)` — satisfies "≥
+the job's timeout" using only the global default. True per-job override
+would need a future manifest/payload field.
+
 ### Secret/auth mechanism
 
 Two separate secrets — do not conflate them:
@@ -118,6 +142,16 @@ Two separate secrets — do not conflate them:
   `packages/cronify/src/server.ts`.
 - **CLI/dashboard → scheduler admin API**:
   `Authorization: Bearer <CRONIFY_ADMIN_TOKEN>`, env var on the scheduler.
+
+How the scheduler learns each app's `CRON_SECRET` (this was still open when
+`packages/cronify` was built — resolved when the scheduler was built): sent
+via `sync`. `cronify sync` reads `CRON_SECRET` from the environment (no CLI
+flag — a secret shouldn't be typeable as a shell arg visible in history/`ps`)
+and includes it as `cronSecret` in the `/api/v1/sync` body, alongside
+`source`/`appUrl`. The scheduler stores it per job row (`jobs.secret`,
+denormalized like `jobs.app_url`) and sends it back as the `Authorization`
+header when firing that job's route. Keeps `cronify sync` a single
+self-contained call with no separate manual provisioning step per app.
 
 ### Next.js routing convention
 
@@ -198,7 +232,7 @@ packages/cronify/
 │   ├── sync.ts           regenerate + POST to scheduler /api/v1/sync
 │   ├── cli.ts             `cronify generate` / `cronify sync` bin
 │   └── types.ts          shared types + defaults
-└── test/                 vitest, one file per src module, 39 tests
+└── test/                 vitest, one file per src module, 41 tests
 ```
 
 Notable choices, in case they look surprising later:
@@ -244,8 +278,84 @@ Build/test commands (run from `packages/cronify/`):
 ```sh
 npm install
 npm run build       # tsup -> dist/ (esm + cjs + .d.ts)
-npm test            # vitest, 39 tests passing as of this writing
+npm test            # vitest, 41 tests passing as of this writing
 npm run typecheck
+```
+
+## `scheduler` — implementation notes
+
+```
+scheduler/
+├── main.go               wiring: config → db → migrate → scheduler → api → signal shutdown
+├── internal/
+│   ├── config/            env var loading + defaults + fail-fast validation
+│   ├── model/              Job, JobRun, SyncRequest/JobPayload, SyncResult
+│   ├── store/                SQLite: schema.sql (go:embed), ReconcileSource,
+│   │                          ClaimRun (locking), FinishRun, DueJobs, etc.
+│   ├── scheduler/            tick loop, TriggerRun/Claim/RunAttempts, backoff,
+│   │                          cron-schedule parsing
+│   ├── api/                   /api/v1/* handlers + bearer-token auth middleware
+│   └── httpjson/               shared JSON response helpers
+└── README.md
+```
+
+Notable choices, in case they look surprising later:
+
+- **SQLite driver: `modernc.org/sqlite`, not `mattn/go-sqlite3`.** Pure Go,
+  no cgo — keeps `CGO_ENABLED=0`/single static binary/cross-compilation
+  intact, which is the whole reason SPEC.md picked Go for this piece.
+  `db.SetMaxOpenConns(1)` avoids `SQLITE_BUSY` given `database/sql`'s pooling
+  doesn't fit single-writer SQLite. DSN sets `_txlock=immediate` so every
+  transaction is `BEGIN IMMEDIATE` by default — required for `ClaimRun`'s
+  check-then-act atomicity — plus `_busy_timeout=5000` as a backstop.
+- **DATE/DATETIME/TIMESTAMP-declared columns get the driver's built-in
+  `time.Time` round-trip — always bind and scan them as `time.Time`, never
+  hand-format to a string.** `modernc.org/sqlite` auto-detects any column
+  whose declared type is `DATE`/`DATETIME`/`TIMESTAMP` and silently
+  reformats the stored text to `RFC3339Nano` (variable-precision) whenever
+  it's read back — even into a `*string` destination. A hand-rolled
+  fixed-width text layout (tried first, during scheduler implementation)
+  broke immediately on read for exactly this reason. Binding/scanning as
+  `time.Time` (or `sql.NullTime` for the nullable `finished_at`) sidesteps
+  it entirely by using the format the driver itself round-trips correctly.
+- **Cron parsing: `github.com/robfig/cron/v3`, parser only** (`ParseStandard`
+  + `.Next()`), wrapped in a small local `Schedule` interface so tests can
+  inject a fake next-occurrence without waiting on real minute boundaries.
+  Deliberately not `cron.New()`'s own goroutine-based runner — the
+  scheduler's own tick loop has to own scheduling since it's what drives
+  SQLite-backed lock/retry state; two independent scheduling loops would be
+  a correctness hazard.
+- **Composite job id** (`source + "::" + jobId`, `UNIQUE(source, job_id)` in
+  the `jobs` table) — see the locking section above for why.
+- **`next_run_at` advances before firing, not after.** The tick loop updates
+  a due job's `next_run_at` to its next future occurrence immediately after
+  picking it up, before dispatch — so a retry sequence spanning multiple
+  tick intervals can never cause the same occurrence to be dispatched twice.
+- **Manual "run now" is claim-then-async**, not fully synchronous: the
+  handler calls `Scheduler.Claim` synchronously (so it can return the run id
+  immediately) and runs `Scheduler.RunAttempts` in a goroutine, since a full
+  retry sequence can take 1.5+ minutes and the HTTP request shouldn't block
+  on it. Uses the exact same `Claim`/`RunAttempts` the tick loop uses, so
+  behavior is identical whether a run was scheduled or manual.
+- **All JSON struct tags are hand-set camelCase.** Go's default marshaling
+  uses the exported field name verbatim, which would silently break interop
+  with the wire format's camelCase fields (`appUrl`, `nextRunAt`, etc.) —
+  covered by an API test that decodes a live response into `map[string]any`
+  and asserts on the actual key names, not just Go struct equality.
+- **stdlib `net/http.ServeMux`, no router dependency.** Go 1.22+'s
+  method+wildcard patterns (`"POST /api/v1/jobs/{id}/run"`, `r.PathValue`)
+  cover everything needed; same small-dependency-footprint reasoning
+  `packages/cronify` already applies to picking `node:util.parseArgs` over
+  commander/yargs. Two direct Go dependencies total (`modernc.org/sqlite`,
+  `robfig/cron/v3`) — everything else is stdlib.
+
+Build/test commands (run from `scheduler/`):
+
+```sh
+go build ./...
+go vet ./...
+go test ./...
+CRONIFY_ADMIN_TOKEN=dev go run .   # local run
 ```
 
 ## Explicitly out of scope for v1 (per SPEC.md)
@@ -257,7 +367,6 @@ token.
 
 ## Next steps
 
-Per the approved build order: the Go scheduler (tick loop, SQLite, the
-`/api/v1/*` API above, retry/locking logic per the numbers above), then the
-bundled dashboard, then Docker + one-click deploy buttons. Don't start
-scheduler work without checking in with the user first.
+Per the approved build order: the bundled dashboard (server-rendered, on top
+of the now-stable scheduler API), then Docker + one-click deploy buttons.
+Don't start dashboard work without checking in with the user first.
