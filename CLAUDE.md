@@ -128,6 +128,25 @@ and job ids come from filenames in each app's own `cron/` dir. A bare global
 id would risk two unrelated apps' same-named jobs (e.g. both called
 `daily-report`) silently colliding.
 
+**One `job_runs` row covers a run's entire multi-attempt/backoff sequence,
+not one row per attempt.** `attempt` is updated in place on that same row as
+retries proceed (`Store.AdvanceAttempt`); the row is only finalized to
+`success`/`failed` once, at the very end (a success, or the last attempt's
+failure) — never in between. This matters for locking, not just bookkeeping:
+the row must stay `in_progress` for the *entire* run, including every
+backoff sleep between attempts, for the "check for an in_progress row"
+algorithm above to mean anything. An earlier version finalized each failed
+attempt's row immediately and only inserted the next attempt's in_progress
+row when that attempt actually started — which left a real gap during each
+backoff sleep where no in_progress row existed at all, so a manual "run now"
+landing in that gap sailed past the lock check and started a second,
+overlapping run for the same job. Found via manual dashboard testing (not
+by any test — worth remembering when this kind of state-machine bug is
+suspected elsewhere: exercise the actual timing, don't just read the code).
+Fixed, and guarded by
+`scheduler/internal/scheduler/scheduler_test.go`'s
+`TestTriggerRunLockHeldDuringBackoffGap`.
+
 The wire payload has no per-job `staleLockTimeoutSeconds` today (not part of
 `ManifestJobEntry`), so the effective value is
 `max(CRONIFY_STALE_LOCK_TIMEOUT_SECONDS, job.timeoutSeconds)` — satisfies "≥

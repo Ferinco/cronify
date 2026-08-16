@@ -76,16 +76,22 @@ func insertInProgress(ctx context.Context, tx *sql.Tx, jobID string, attempt int
 	return res.LastInsertId()
 }
 
-// StartAttempt records a new attempt (2nd, 3rd, ...) within a run this goroutine
-// already owns from ClaimRun — it does not re-scan for a held lock.
-func (s *Store) StartAttempt(ctx context.Context, jobID string, attempt int, now time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO job_runs (job_id, status, attempt, started_at) VALUES (?, ?, ?, ?)`,
-		jobID, model.StatusInProgress, attempt, now.UTC())
-	if err != nil {
-		return 0, fmt.Errorf("start attempt: %w", err)
+// AdvanceAttempt bumps the attempt counter on a run this goroutine already
+// owns from ClaimRun, ahead of firing attempt N (N>1). It updates the same
+// row in place and leaves status untouched (still in_progress) — the row
+// must stay in_progress for the run's *entire* multi-attempt/backoff
+// duration, not just while one HTTP call is in flight. An earlier version of
+// this package instead finalized each attempt's row to "failed" immediately
+// and inserted a new in_progress row for the next attempt; that left a real
+// gap during each backoff sleep where no in_progress row existed at all, so
+// a concurrent manual "run now" during that window sailed past ClaimRun's
+// lock check and started a second, overlapping run for the same job —
+// exactly what locking exists to prevent.
+func (s *Store) AdvanceAttempt(ctx context.Context, runID int64, attempt int) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE job_runs SET attempt = ? WHERE id = ?`, attempt, runID); err != nil {
+		return fmt.Errorf("advance attempt: %w", err)
 	}
-	return res.LastInsertId()
+	return nil
 }
 
 // FinishRun marks a run row success or failed.

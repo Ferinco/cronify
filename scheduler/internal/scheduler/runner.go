@@ -44,17 +44,19 @@ func (s *Scheduler) Claim(ctx context.Context, job model.Job) (claimed bool, run
 	return claimed, runID, nil
 }
 
-// RunAttempts fires attempts with backoff between them, starting with the attempt-1
-// row runID (already inserted by Claim), until one succeeds or maxAttempts is
-// exhausted.
+// RunAttempts fires attempts with backoff between them, all against the single
+// job_runs row runID (already inserted in_progress by Claim), until one succeeds
+// or maxAttempts is exhausted. The row is only finalized (FinishRun, to success
+// or failed) once — on the success, or on the last attempt's failure — so it
+// stays in_progress, and the job's lock stays held, for the run's entire
+// multi-attempt/backoff duration. See AdvanceAttempt's comment for why an
+// earlier version that finalized every attempt individually was a locking bug.
 func (s *Scheduler) RunAttempts(ctx context.Context, job model.Job, runID int64) error {
 	var lastErr error
 	for attempt := 1; attempt <= job.MaxAttempts; attempt++ {
 		if attempt > 1 {
-			var err error
-			runID, err = s.Store.StartAttempt(ctx, job.ID, attempt, time.Now())
-			if err != nil {
-				return fmt.Errorf("start attempt %d: %w", attempt, err)
+			if err := s.Store.AdvanceAttempt(ctx, runID, attempt); err != nil {
+				return fmt.Errorf("advance to attempt %d: %w", attempt, err)
 			}
 		}
 
@@ -69,17 +71,20 @@ func (s *Scheduler) RunAttempts(ctx context.Context, job model.Job, runID int64)
 		}
 
 		lastErr = attemptErr
-		errMsg := attemptErr.Error()
-		if err := s.Store.FinishRun(ctx, runID, model.StatusFailed, httpStatus, &errMsg, finishedAt); err != nil {
-			return fmt.Errorf("finish run: %w", err)
+
+		if attempt == job.MaxAttempts {
+			errMsg := attemptErr.Error()
+			if err := s.Store.FinishRun(ctx, runID, model.StatusFailed, httpStatus, &errMsg, finishedAt); err != nil {
+				return fmt.Errorf("finish run: %w", err)
+			}
+			break
 		}
 
-		if attempt < job.MaxAttempts {
-			select {
-			case <-time.After(s.Backoff.Delay(attempt)):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+		slog.Warn("cronify: attempt failed, retrying", "job", job.ID, "attempt", attempt, "error", attemptErr)
+		select {
+		case <-time.After(s.Backoff.Delay(attempt)):
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
 
