@@ -1,0 +1,15 @@
+{{define "content"}}
+<p><a href="/jobs/{{.Job.ID}}">&larr; Back to {{.Job.JobID}}</a></p>
+<h1>Delete {{.Job.JobID}}?</h1>
+<div class="card">
+  <dl>
+    <dt>Source</dt><dd>{{.Job.Source}}</dd>
+    <dt>Schedule</dt><dd class="mono">{{.Job.Schedule}}</dd>
+    <dt>Route</dt><dd class="mono">{{.Job.Route}}</dd>
+  </dl>
+</div>
+<p class="muted">This removes the job's configuration. Its run history is kept. If this job is still present in the app's <span class="mono">cron/</span> directory, the next <span class="mono">cronify sync</span> will re-create it.</p>
+<form method="post" action="/jobs/{{.Job.ID}}/delete">
+  <button type="submit" class="danger">Delete job</button>
+</form>
+{{end}}

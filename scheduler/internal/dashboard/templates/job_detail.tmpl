@@ -1,0 +1,65 @@
+{{define "content"}}
+<p><a href="/">&larr; All jobs</a></p>
+<h1>{{.Job.JobID}}</h1>
+
+<div class="card">
+  <dl>
+    <dt>Source</dt><dd>{{.Job.Source}}</dd>
+    <dt>Status</dt><dd>{{if .Job.Enabled}}enabled{{else}}<span class="badge badge-paused">paused</span>{{end}}</dd>
+    <dt>Schedule</dt><dd class="mono">{{.Job.Schedule}}</dd>
+    <dt>Next run</dt><dd>{{if .Job.Enabled}}<span title="{{rfc3339 .Job.NextRunAt}}">{{relativeTime .Job.NextRunAt}}</span>{{else}}&mdash;{{end}}</dd>
+    <dt>App URL</dt><dd class="mono">{{.Job.AppURL}}</dd>
+    <dt>Route</dt><dd class="mono">{{.Job.Route}}</dd>
+    <dt>Timeout</dt><dd>{{.Job.TimeoutSeconds}}s</dd>
+    <dt>Max attempts</dt><dd>{{.Job.MaxAttempts}}</dd>
+    {{if .Job.Description}}<dt>Description</dt><dd>{{.Job.Description}}</dd>{{end}}
+  </dl>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="/jobs/{{.Job.ID}}/run">
+    <button type="submit">Run now</button>
+  </form>
+  {{if .Job.Enabled}}
+  <form class="inline" method="post" action="/jobs/{{.Job.ID}}/pause">
+    <button type="submit">Pause</button>
+  </form>
+  {{else}}
+  <form class="inline" method="post" action="/jobs/{{.Job.ID}}/resume">
+    <button type="submit">Resume</button>
+  </form>
+  {{end}}
+  <a class="btn" href="/jobs/{{.Job.ID}}/delete">Delete</a>
+</div>
+
+<h2>Run history</h2>
+{{if not .Runs}}
+<p class="empty">No runs yet.</p>
+{{else}}
+<table>
+  <thead>
+    <tr>
+      <th>Attempt</th>
+      <th>Status</th>
+      <th>Started</th>
+      <th>Finished</th>
+      <th>HTTP</th>
+      <th>Error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Runs}}
+    <tr>
+      <td>{{.Attempt}}</td>
+      <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+      <td title="{{rfc3339 .StartedAt}}">{{relativeTime .StartedAt}}</td>
+      <td>{{if .HasFinished}}<span title="{{rfc3339 .FinishedAt}}">{{relativeTime .FinishedAt}}</span>{{else}}&mdash;{{end}}</td>
+      <td class="mono">{{if .HTTPStatus}}{{.HTTPStatus}}{{else}}&mdash;{{end}}</td>
+      <td class="muted">{{if .Error}}{{.Error}}{{else}}&mdash;{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{if .ShowMore}}<p><a href="?limit={{.MoreLimit}}">Show more</a></p>{{end}}
+{{end}}
+{{end}}

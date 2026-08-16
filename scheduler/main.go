@@ -1,6 +1,7 @@
-// Command cronify-scheduler is the self-hosted tick loop + admin API described in
-// CLAUDE.md: SQLite-backed job storage, retries with backoff, overlap-protection
-// locking, and the /api/v1/* API that `cronify sync` and the dashboard talk to.
+// Command cronify-scheduler is the self-hosted tick loop + admin API + dashboard
+// described in CLAUDE.md: SQLite-backed job storage, retries with backoff,
+// overlap-protection locking, the /api/v1/* API that `cronify sync` talks to, and
+// the bundled HTML dashboard — all served from one process on one port.
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 
 	"github.com/Ferinco/cronify/scheduler/internal/api"
 	"github.com/Ferinco/cronify/scheduler/internal/config"
+	"github.com/Ferinco/cronify/scheduler/internal/dashboard"
 	"github.com/Ferinco/cronify/scheduler/internal/scheduler"
 	"github.com/Ferinco/cronify/scheduler/internal/store"
 )
@@ -48,15 +50,21 @@ func run() error {
 	sched := scheduler.New(st, cfg.TickInterval, time.Duration(cfg.StaleLockTimeoutSecs)*time.Second)
 	go sched.Run(ctx)
 
-	handlers := &api.Handlers{
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux, &api.Handlers{
 		Store:      st,
 		Runner:     sched,
 		Next:       scheduler.Next,
 		AdminToken: cfg.AdminToken,
-	}
+	})
+	dashboard.RegisterRoutes(mux, &dashboard.Handlers{
+		Store:      st,
+		Runner:     sched,
+		AdminToken: cfg.AdminToken,
+	})
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: api.NewMux(handlers),
+		Handler: mux,
 	}
 
 	serveErr := make(chan error, 1)
