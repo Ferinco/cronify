@@ -40,6 +40,7 @@ describe("sync", () => {
       target: "https://scheduler.example.com",
       appUrl: "https://myapp.vercel.app",
       token: "admin-token",
+      cronSecret: "shh",
       root: dir,
     });
 
@@ -51,6 +52,7 @@ describe("sync", () => {
     const body = JSON.parse(init?.body as string);
     expect(body.source).toBe("my-app");
     expect(body.appUrl).toBe("https://myapp.vercel.app");
+    expect(body.cronSecret).toBe("shh");
     expect(body.jobs).toHaveLength(1);
     expect(body.jobs[0].id).toBe("job");
 
@@ -64,6 +66,7 @@ describe("sync", () => {
       target: "https://scheduler.example.com",
       appUrl: "https://myapp.vercel.app",
       token: "admin-token",
+      cronSecret: "shh",
       source: "explicit-source",
       root: dir,
     });
@@ -77,7 +80,13 @@ describe("sync", () => {
     fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
 
     await expect(
-      sync({ target: "https://scheduler.example.com", appUrl: "https://myapp.vercel.app", token: "t", root: dir }),
+      sync({
+        target: "https://scheduler.example.com",
+        appUrl: "https://myapp.vercel.app",
+        token: "t",
+        cronSecret: "shh",
+        root: dir,
+      }),
     ).rejects.toThrow(/couldn't reach scheduler/);
   });
 
@@ -87,7 +96,13 @@ describe("sync", () => {
       .mockResolvedValue(new Response("unauthorized", { status: 401, statusText: "Unauthorized" }));
 
     await expect(
-      sync({ target: "https://scheduler.example.com", appUrl: "https://myapp.vercel.app", token: "bad", root: dir }),
+      sync({
+        target: "https://scheduler.example.com",
+        appUrl: "https://myapp.vercel.app",
+        token: "bad",
+        cronSecret: "shh",
+        root: dir,
+      }),
     ).rejects.toThrow(/401/);
   });
 });

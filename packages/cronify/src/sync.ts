@@ -7,6 +7,7 @@ export interface SyncOptions {
   target: string;
   appUrl: string;
   token: string;
+  cronSecret: string;
   source?: string;
   root?: string;
 }
@@ -37,6 +38,7 @@ export async function sync(options: SyncOptions): Promise<unknown> {
   const body = JSON.stringify({
     source,
     appUrl: options.appUrl,
+    cronSecret: options.cronSecret,
     jobs: manifest.jobs,
   });
 

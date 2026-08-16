@@ -62,13 +62,17 @@ npx cronify sync \
   --token $CRONIFY_ADMIN_TOKEN
 ```
 
-`sync` regenerates routes/manifest first, then POSTs the manifest to the
-scheduler's `/api/v1/sync` endpoint, which reconciles jobs for this app
-(creates new ones, updates changed ones, deletes ones no longer present).
+`sync` regenerates routes/manifest first, then POSTs the manifest — plus
+`CRON_SECRET` from your environment, so the scheduler knows what to send back
+when it fires your routes — to the scheduler's `/api/v1/sync` endpoint, which
+reconciles jobs for this app (creates new ones, updates changed ones, deletes
+ones no longer present).
 
 Flags can also come from env vars: `CRONIFY_SCHEDULER_URL`, `CRONIFY_APP_URL`,
 `CRONIFY_ADMIN_TOKEN`. `--source` (default: your `package.json` `"name"`)
-groups jobs when one scheduler serves multiple apps.
+groups jobs when one scheduler serves multiple apps. `CRON_SECRET` has no
+flag equivalent — it's read from the environment only, so it never appears
+in shell history or `ps` output.
 
 ## `withLock()` — overlap protection without the scheduler
 
