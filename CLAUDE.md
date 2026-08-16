@@ -20,7 +20,7 @@ independently):
 ```
 cronify/
 ├── packages/cronify/   TypeScript — defineJob(), route generation, CLI  [BUILT]
-├── scheduler/          Go — tick loop, SQLite, retries, locking, API [BUILT]; dashboard [NOT STARTED]
+├── scheduler/          Go — tick loop, SQLite, retries, locking, API, dashboard [BUILT]
 ├── site/                Next.js — marketing one-pager [NOT STARTED]
 ├── SPEC.md
 └── CLAUDE.md
@@ -29,9 +29,12 @@ cronify/
 Build order (each step independently useful, per SPEC.md): (1) `defineJob()`
 + route generation, (2) standalone `withLock()` primitive, (3) the scheduler,
 (4) the dashboard, (5) Docker + one-click deploy buttons. **Currently at the
-end of step 3** — `packages/cronify` (including `withLock()`) and the Go
-scheduler (tick loop, SQLite, retries, locking, full `/api/v1/*` API) are
-built and tested; the dashboard and Docker packaging have not been started.
+end of step 4** — `packages/cronify` (including `withLock()`), the Go
+scheduler (tick loop, SQLite, retries, locking, full `/api/v1/*` API), and
+the bundled HTML dashboard are all built and tested; Docker packaging has
+not been started. Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) remains a
+stub — deferred as a small separate follow-up, not part of any numbered
+build-order step.
 
 ## Resolved design decisions
 
@@ -142,6 +145,14 @@ Two separate secrets — do not conflate them:
   `packages/cronify/src/server.ts`.
 - **CLI/dashboard → scheduler admin API**:
   `Authorization: Bearer <CRONIFY_ADMIN_TOKEN>`, env var on the scheduler.
+  The dashboard (a browser, not a script) uses the same token over **HTTP
+  Basic Auth** instead — a browser can prompt for that natively, unlike a
+  bearer header. Any username works; the password is `CRONIFY_ADMIN_TOKEN`.
+  Known tradeoff: browsers cache Basic Auth credentials per-origin and
+  auto-attach them to same-origin requests, including ones triggered by
+  another site the admin has open (a CSRF-shaped risk) — accepted for a
+  single/few-admin self-hosted tool, not relevant at the scale this project
+  is scoped for.
 
 How the scheduler learns each app's `CRON_SECRET` (this was still open when
 `packages/cronify` was built — resolved when the scheduler was built): sent
@@ -286,7 +297,7 @@ npm run typecheck
 
 ```
 scheduler/
-├── main.go               wiring: config → db → migrate → scheduler → api → signal shutdown
+├── main.go               wiring: config → db → migrate → scheduler → api+dashboard → signal shutdown
 ├── internal/
 │   ├── config/            env var loading + defaults + fail-fast validation
 │   ├── model/              Job, JobRun, SyncRequest/JobPayload, SyncResult
@@ -294,7 +305,9 @@ scheduler/
 │   │                          ClaimRun (locking), FinishRun, DueJobs, etc.
 │   ├── scheduler/            tick loop, TriggerRun/Claim/RunAttempts, backoff,
 │   │                          cron-schedule parsing
-│   ├── api/                   /api/v1/* handlers + bearer-token auth middleware
+│   ├── api/                   /api/v1/* JSON handlers + bearer-token auth middleware
+│   ├── dashboard/              bundled HTML admin UI (html/template + go:embed),
+│   │                            Basic Auth, same Store/Runner as api/
 │   └── httpjson/               shared JSON response helpers
 └── README.md
 ```
@@ -347,7 +360,37 @@ Notable choices, in case they look surprising later:
   cover everything needed; same small-dependency-footprint reasoning
   `packages/cronify` already applies to picking `node:util.parseArgs` over
   commander/yargs. Two direct Go dependencies total (`modernc.org/sqlite`,
-  `robfig/cron/v3`) — everything else is stdlib.
+  `robfig/cron/v3`) — everything else is stdlib, including the dashboard
+  (`html/template`, no CSS framework, no JS, no new deps).
+- **`api.RegisterRoutes`/`dashboard.RegisterRoutes` register onto one shared
+  `*http.ServeMux`** (`main.go`), so the JSON API and the dashboard run on
+  one process/port, per SPEC.md's "one binary, one Docker image, one
+  deploy." Each package's own `NewMux` is a thin wrapper kept for tests.
+  Dashboard routes use Go 1.22's exact-root pattern `"GET /{$}"`, not `"/"`
+  — a bare `"/"` would match every unmatched path and could shadow
+  `/api/v1/*`/`/healthz` on the shared mux.
+- **Dashboard actions (run/pause/resume/delete) are plain HTML `<form>`
+  POSTs with Post-Redirect-Get**, no JavaScript anywhere. The redirect
+  target trusts only the `Referer` header's path+query, never its
+  scheme/host, so a forged `Referer` (Basic Auth doesn't stop a non-browser
+  client from sending one) can't turn a button click into an off-site
+  redirect. One-shot feedback is a `?flash=` query param resolved against a
+  fixed, known set of messages server-side — the banner never echoes
+  arbitrary query-string content.
+- **Dashboard delete has a `GET` confirmation page before the real `POST`
+  delete** — the project avoids all JS (so no `confirm()` dialog), and the
+  JSON API already exposes `DELETE /api/v1/jobs/:id` with no client-side
+  guard at all, so a dashboard with no "are you sure" step felt like an
+  obvious gap. Not explicitly requested by SPEC.md's dashboard bullets;
+  flagging it as an addition in case it should've been scoped differently.
+- **Dashboard templates: one separately-parsed `*template.Template` set per
+  page** (`base.tmpl` + exactly one page file), not all `*.tmpl` files
+  parsed into one shared set. Every page defines a block named `"content"`;
+  within a single `html/template.Template`, same-named `{{define}}` blocks
+  silently overwrite each other, so a shared parse would make whichever
+  page file parses last "win" for every page regardless of which one is
+  being rendered. Hit this directly during implementation (every page
+  rendered as the job-detail page) before splitting the parse per page.
 
 Build/test commands (run from `scheduler/`):
 
@@ -367,6 +410,9 @@ token.
 
 ## Next steps
 
-Per the approved build order: the bundled dashboard (server-rendered, on top
-of the now-stable scheduler API), then Docker + one-click deploy buttons.
-Don't start dashboard work without checking in with the user first.
+Per the approved build order: Docker packaging + one-click deploy buttons
+(step 5) is the only remaining numbered step. Webhook failure alerting
+(`CRONIFY_WEBHOOK_URL`, currently a stub) is a plausible small follow-up
+before or after that — it would hook into `Scheduler.RunAttempts`'s failure
+path in `scheduler/internal/scheduler/runner.go`, not the dashboard. Don't
+start either without checking in with the user first.
