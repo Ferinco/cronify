@@ -89,10 +89,16 @@ export default defineJob({
     async () => {
       // your logic
     },
-    { key: "daily-report", store },
+    {
+      key: "daily-report",
+      store,
+      onSkip: () => console.log('cronify: "daily-report" skipped, previous run still in progress'),
+    },
   ),
 });
 ```
+
+A skipped run still resolves with `{"success":true}` from the route — from the HTTP response alone there's no way to tell "ran" from "skipped." `onSkip` is the way to make that visible in your platform's logs (Vercel/GitHub Actions/wherever), which is the only observability you have without the full scheduler.
 
 Built-in stores:
 
@@ -119,7 +125,8 @@ different call's lock after its own lock expired.
 
 `withLock` options: `ttlSeconds` (default 300), `onLocked: "skip" | "throw"`
 (default `"skip"` — silently returns without running the handler; `"throw"`
-raises `LockHeldError`).
+raises `LockHeldError`), `onSkip` (called whenever a run is skipped, in
+either `onLocked` mode).
 
 ## Package layout
 

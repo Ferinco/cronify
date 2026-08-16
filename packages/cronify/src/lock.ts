@@ -18,17 +18,19 @@ export interface WithLockOptions {
   store: LockStore;
   ttlSeconds?: number;
   onLocked?: "skip" | "throw";
+  onSkip?: () => void;
 }
 
 const DEFAULT_TTL_SECONDS = 300;
 
 export function withLock(handler: () => void | Promise<void>, options: WithLockOptions): () => Promise<void> {
-  const { key, store, ttlSeconds = DEFAULT_TTL_SECONDS, onLocked = "skip" } = options;
+  const { key, store, ttlSeconds = DEFAULT_TTL_SECONDS, onLocked = "skip", onSkip } = options;
 
   return async function lockedHandler(): Promise<void> {
     const token = randomUUID();
     const acquired = await store.acquire(key, token, ttlSeconds);
     if (!acquired) {
+      onSkip?.();
       if (onLocked === "throw") throw new LockHeldError(key);
       return;
     }

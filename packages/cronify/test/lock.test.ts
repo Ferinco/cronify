@@ -115,4 +115,28 @@ describe("withLock", () => {
     await expect(locked()).rejects.toThrow(LockHeldError);
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it("calls onSkip when the lock is held, in both onLocked modes", async () => {
+    const store = createMemoryLockStore();
+    await store.acquire("job", "someone-else", 60);
+    const onSkip = vi.fn();
+
+    await withLock(async () => {}, { key: "job", store, onSkip })();
+    expect(onSkip).toHaveBeenCalledOnce();
+
+    await expect(withLock(async () => {}, { key: "job", store, onLocked: "throw", onSkip })()).rejects.toThrow(
+      LockHeldError,
+    );
+    expect(onSkip).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not call onSkip when the lock is free", async () => {
+    const store = createMemoryLockStore();
+    const onSkip = vi.fn();
+    const locked = withLock(async () => {}, { key: "job", store, onSkip });
+
+    await locked();
+
+    expect(onSkip).not.toHaveBeenCalled();
+  });
 });

@@ -171,7 +171,11 @@ still matches the token that call acquired (fencing) — a plain unconditional
 delete would let a slow, still-running call release a different call's lock
 after its own TTL expired and someone else reclaimed it. `onLocked: "skip"`
 (default) silently no-ops when the lock is held; `"throw"` raises
-`LockHeldError`.
+`LockHeldError`. Either way a skip is invisible to the HTTP caller — a
+skipped run and a real run both surface as `{"success":true}` from
+`createRouteHandler` — so `withLock` also takes an `onSkip` callback,
+confirmed by an e2e test (real concurrent requests against a real running
+Next.js server) that a skip is otherwise indistinguishable from a run.
 
 Ships two `LockStore` implementations: `createMemoryLockStore()`
 (in-process, for local dev only — useless across separate serverless
