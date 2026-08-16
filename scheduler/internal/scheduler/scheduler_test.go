@@ -134,12 +134,77 @@ func TestTriggerRunRetryThenSucceed(t *testing.T) {
 		t.Fatalf("expected 2 calls (1 failure + 1 success), got %d", got)
 	}
 
+	// One row for the whole run, not one per attempt: the row must stay
+	// in_progress across the retry/backoff gap (see AdvanceAttempt's doc
+	// comment) — a second row here would mean that gap still exists.
 	runs, err := st.ListRuns(context.Background(), job.ID, 10)
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}
-	if len(runs) != 2 {
-		t.Fatalf("expected 2 run rows (one per attempt), got %d", len(runs))
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run row covering both attempts, got %d", len(runs))
+	}
+	if runs[0].Status != model.StatusSuccess || runs[0].Attempt != 2 {
+		t.Fatalf("expected a successful run row with attempt=2, got %+v", runs[0])
+	}
+}
+
+// TestTriggerRunLockHeldDuringBackoffGap is a regression test for a real bug:
+// an earlier version finalized each failed attempt's row to "failed" and only
+// inserted the next attempt's in_progress row when that next attempt actually
+// started firing, leaving a window *during the backoff sleep* where no
+// in_progress row existed for the job at all. A concurrent manual trigger
+// landing in that window sailed past ClaimRun's lock check and started a
+// second, fully independent, overlapping run — exactly what locking exists to
+// prevent. This asserts the lock is held continuously across that gap.
+func TestTriggerRunLockHeldDuringBackoffGap(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	st := newTestStore(t)
+	s := testScheduler(st)
+	s.Backoff = BackoffConfig{Base: 300 * time.Millisecond, Multiplier: 2, JitterPct: 0, Cap: time.Second}
+	job := testJob("job-backoff-gap", srv.URL)
+	job.MaxAttempts = 3
+
+	done := make(chan struct{})
+	go func() {
+		s.TriggerRun(context.Background(), job)
+		close(done)
+	}()
+
+	// Wait for attempt 1 to fail and land inside its backoff sleep (attempt 1
+	// fails near-instantly against the fake server; the 300ms backoff gives a
+	// wide, non-flaky window to land a concurrent claim inside).
+	deadline := time.After(2 * time.Second)
+	for atomic.LoadInt32(&calls) == 0 {
+		select {
+		case <-deadline:
+			t.Fatalf("attempt 1 never reached the fake server")
+		case <-time.After(2 * time.Millisecond):
+		}
+	}
+	time.Sleep(50 * time.Millisecond) // now inside the backoff gap
+
+	runID, err := s.TriggerRun(context.Background(), job)
+	if err != nil {
+		t.Fatalf("concurrent TriggerRun during backoff gap: %v", err)
+	}
+	if runID != 0 {
+		t.Fatalf("expected the concurrent trigger to be skipped (lock still held), got runID %d", runID)
+	}
+
+	<-done
+	runs, err := st.ListRuns(context.Background(), job.ID, 10)
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly 1 run row for the whole job (no overlapping second run got created), got %d", len(runs))
 	}
 }
 
@@ -168,13 +233,11 @@ func TestTriggerRunExhaustsMaxAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list runs: %v", err)
 	}
-	if len(runs) != 3 {
-		t.Fatalf("expected 3 run rows, got %d", len(runs))
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run row covering all 3 attempts, got %d", len(runs))
 	}
-	for _, r := range runs {
-		if r.Status != model.StatusFailed {
-			t.Fatalf("expected all attempts failed, got %+v", r)
-		}
+	if runs[0].Status != model.StatusFailed || runs[0].Attempt != 3 {
+		t.Fatalf("expected a failed run row with attempt=3 (the last one tried), got %+v", runs[0])
 	}
 }
 
