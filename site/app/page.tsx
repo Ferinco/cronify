@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HeroIllustrations } from "./HeroIllustrations";
 
 const REPO_URL = "https://github.com/Ferinco/cronify";
 const SELF_HOST_URL = `${REPO_URL}/blob/main/scheduler/README.md`;
@@ -6,6 +7,7 @@ const SELF_HOST_URL = `${REPO_URL}/blob/main/scheduler/README.md`;
 export default function Home() {
   return (
     <div className="backdrop">
+      <HeroIllustrations />
       <div className="page">
         <header className="site-header">
           <Link href="/" className="wordmark">
