@@ -93,6 +93,91 @@ a {
   margin: 0 auto;
   padding: 0 1.5rem 4rem;
   position: relative;
+  z-index: 1;
+}
+
+/* hero illustrations: gears and a bot, standing in for cron's "moving parts",
+   living in the wide margins either side of the centered content column so
+   they never sit behind the headline text itself. */
+.hero-illustrations {
+  position: absolute;
+  inset: 0;
+  height: 780px;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.illo {
+  position: absolute;
+  color: var(--border);
+  opacity: 0.6;
+}
+
+.illo-eye {
+  fill: var(--accent);
+  opacity: 0.85;
+}
+
+.illo-gear-1 {
+  top: 6%;
+  left: 6%;
+  animation: illo-spin 22s linear infinite;
+}
+
+.illo-gear-2 {
+  top: 46%;
+  right: 8%;
+  animation: illo-spin 16s linear infinite reverse;
+  opacity: 0.45;
+}
+
+.illo-gear-3 {
+  top: 66%;
+  left: 14%;
+  color: var(--accent);
+  opacity: 0.2;
+  animation: illo-spin 30s linear infinite;
+}
+
+.illo-bot-1 {
+  top: 14%;
+  right: 5%;
+  animation: illo-float 5.5s ease-in-out infinite;
+}
+
+.illo-bot-2 {
+  top: 60%;
+  right: 20%;
+  opacity: 0.4;
+  animation: illo-float 6.5s ease-in-out infinite 1s;
+}
+
+@keyframes illo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes illo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@media (max-width: 900px) {
+  .hero-illustrations {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .illo {
+    animation: none !important;
+  }
 }
 
 /* header */
