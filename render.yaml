@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: cronify-scheduler
+    runtime: docker
+    plan: starter
+    rootDir: scheduler
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: CRONIFY_ADMIN_TOKEN
+        sync: false
+      - key: CRONIFY_PORT
+        value: "8080"
+    disks:
+      - name: cronify-data
+        mountPath: /data
+        sizeGB: 1
