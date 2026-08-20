@@ -21,20 +21,43 @@ independently):
 cronify/
 ├── packages/cronify/   TypeScript — defineJob(), route generation, CLI  [BUILT]
 ├── scheduler/          Go — tick loop, SQLite, retries, locking, API, dashboard [BUILT]
-├── site/                Next.js — marketing one-pager [NOT STARTED]
+│                        + Dockerfile, railway.json, fly.toml [BUILT]
+├── site/                Next.js — marketing one-pager [BUILT]
+├── render.yaml           repo-root Render Blueprint (rootDir: scheduler)
+├── docker-compose.yml     repo-root convenience wrapper around scheduler/Dockerfile
 ├── SPEC.md
 └── CLAUDE.md
 ```
 
 Build order (each step independently useful, per SPEC.md): (1) `defineJob()`
 + route generation, (2) standalone `withLock()` primitive, (3) the scheduler,
-(4) the dashboard, (5) Docker + one-click deploy buttons. **Currently at the
-end of step 4** — `packages/cronify` (including `withLock()`), the Go
-scheduler (tick loop, SQLite, retries, locking, full `/api/v1/*` API), and
-the bundled HTML dashboard are all built and tested; Docker packaging has
-not been started. Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) remains a
-stub — deferred as a small separate follow-up, not part of any numbered
+(4) the dashboard, (5) Docker + one-click deploy buttons. **All five steps
+are done** — `packages/cronify` (including `withLock()`), the Go scheduler
+(tick loop, SQLite, retries, locking, full `/api/v1/*` API), the bundled
+HTML dashboard, and Docker packaging (Dockerfile + Render/Railway/Fly.io
+configs) are all built. The marketing site (`site/`) is also built, though
+it sits outside the numbered build order (see the "Four pieces" note
+above). Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) remains a stub —
+deferred as a small separate follow-up, not part of any numbered
 build-order step.
+
+**Of the three "one-click deploy" targets, only Render's badge actually
+works with zero setup.** Researched this before building rather than
+guessing: Render's `render.com/deploy?repo=` mechanism is genuinely
+config-only (a `render.yaml` Blueprint + a static badge URL — no
+account-linked action needed by the repo owner beyond making the repo
+public). Railway's "Deploy on Railway" badge, by contrast, is only produced
+by publishing a **Railway Template** through Railway's own dashboard — an
+account action, not something a committed config file can produce on its
+own. Fly.io currently has no stable, documented static-badge mechanism at
+all (their supported flow is the `fly launch`/`fly deploy` CLI, or their
+dashboard's own GitHub-import UI). So: `railway.json` and `fly.toml` are
+both present and correct — connecting the repo through either platform's
+normal flow immediately picks up the right build/deploy settings — but
+turning either into an actual clickable README badge needs one further
+manual, account-linked step from whoever owns the deployed
+instance. See `scheduler/README.md`'s "Deploy" section for the exact
+steps.
 
 ## Resolved design decisions
 
@@ -420,18 +443,94 @@ go test ./...
 CRONIFY_ADMIN_TOKEN=dev go run .   # local run
 ```
 
+## Docker packaging — implementation notes
+
+`scheduler/Dockerfile`: multi-stage, `golang:1.25-alpine` builder →
+`gcr.io/distroless/static-debian12:nonroot` final image (~25MB measured:
+just the Go binary + CA cert bundle).
+
+- **`distroless/static`, not `scratch`.** `CGO_ENABLED=0` (already true —
+  `modernc.org/sqlite` is pure Go) means no libc dependency, so `scratch`
+  would technically run the binary, but distroless additionally bundles CA
+  certificates (needed whenever the scheduler fires an HTTPS job route —
+  i.e. any real deployed app) and a working non-root user (uid 65532) out
+  of the box; `scratch` has neither.
+- **The `/data` volume-ownership trick — `COPY --chown` must create the
+  directory, not `WORKDIR`.** Distroless has no shell, so there's no `RUN
+  mkdir`/`chown` available in the final stage; `/data` is created and
+  `chown`'d to `65532:65532` (distroless's documented nonroot uid/gid) in
+  the *builder* stage instead, then copied over with `COPY --chown`. The
+  first version of this Dockerfile put `WORKDIR /data` **before** that
+  `COPY`, which is a real bug, not just a style choice:
+  `WORKDIR`'s auto-mkdir always creates the directory as **root**,
+  regardless of the image's default `USER` — so the directory existed by
+  the time the chowned `COPY` ran, and copying an empty source directory
+  onto an already-existing destination doesn't retroactively fix its
+  ownership. Caught by actually running the container: it crashed
+  immediately with `unable to open database file (14)` (SQLite
+  `SQLITE_CANTOPEN`) because the nonroot process couldn't write to a
+  root-owned `/data`. Fix: `COPY --chown=65532:65532` must run *first* to
+  create the directory correctly; `WORKDIR /data` afterward is then a
+  no-op on an already-existing, correctly-owned directory. Verified fixed
+  by inspecting the built image directly (`docker export` + `tar -tv`
+  showing `/data` as `65532 65532`, not `0 0`) and by a full run: sync a
+  job, stop and recreate the container against the same named volume,
+  confirm the job survived.
+- **No Dockerfile `HEALTHCHECK`** — no shell/curl to run one in. All three
+  platform configs (`render.yaml`, `railway.json`, `fly.toml`) instead point
+  at the existing `GET /healthz` endpoint at the platform-config level,
+  which is more portable across platforms than a Dockerfile-level directive
+  anyway.
+- **Build context is `scheduler/`, not the repo root** — keeps the context
+  small (doesn't send `packages/cronify/node_modules`, `site/node_modules`,
+  etc. to the daemon) and matches "each piece builds independently."
+- **Verified end-to-end** (`docker build`, `docker run` with a named
+  volume, `docker compose up`) via Colima + the Homebrew `docker`/
+  `docker-compose` CLIs, not Docker Desktop — Docker Desktop 4.51.0 can't
+  launch on this machine's macOS 13.7.8 (`kLSIncompatibleSystemVersionErr`,
+  too old for that Docker Desktop release). Colima runs the same `dockerd`
+  in a lightweight Linux VM and produces byte-identical images from the
+  same Dockerfile, so this has no bearing on what Render/Railway/Fly.io
+  build server-side from the repo. Final image: ~25MB. One unrelated
+  footgun hit *while* verifying, worth remembering for next time: an
+  orphaned `go run .` scheduler process from an earlier manual test
+  session was still running on the host and bound to port 8080, so the
+  first round of `curl localhost:8080` calls were silently hitting that
+  stale process instead of the container — `docker ps`/`docker logs`
+  looked fine throughout, only the *data* (jobs that shouldn't have existed
+  yet) gave it away. Always suspect a stale host-bound process if a
+  container's behavior doesn't match what the Dockerfile should produce.
+
+`render.yaml` (repo root, not `scheduler/`) — Render's Blueprint discovery
+defaults to the repo root; `rootDir: scheduler` on the service scopes the
+actual build/deploy to that subdirectory. `autoDeploy: false` per Render's
+own stated guidance for Deploy-to-Render buttons, so pushes to a deployer's
+fork don't silently redeploy every instance created via the button.
+
+`scheduler/fly.toml`: `auto_stop_machines = "off"` (string, not boolean —
+Fly's current schema) and `min_machines_running = 1` deliberately. Fly's
+default scale-to-zero would kill the tick loop, which is the entire point
+of this being a self-hosted always-on process rather than another
+serverless function.
+
 ## Explicitly out of scope for v1 (per SPEC.md)
 
 No hosted/SaaS version, no multi-region scheduler, no workflow/step
 orchestration (that's Inngest/Trigger.dev territory — this is scheduling +
 retries + locking only), no auth provider for the dashboard beyond a shared
-token.
+token. Also out of scope, not part of any numbered build-order step:
+publishing a prebuilt Docker image to a registry (GHCR/Docker Hub) via CI —
+users build their own image for now.
 
 ## Next steps
 
-Per the approved build order: Docker packaging + one-click deploy buttons
-(step 5) is the only remaining numbered step. Webhook failure alerting
-(`CRONIFY_WEBHOOK_URL`, currently a stub) is a plausible small follow-up
-before or after that — it would hook into `Scheduler.RunAttempts`'s failure
-path in `scheduler/internal/scheduler/runner.go`, not the dashboard. Don't
-start either without checking in with the user first.
+All five numbered build-order steps are done. What's left is entirely
+optional polish, none of it blocking: webhook failure alerting
+(`CRONIFY_WEBHOOK_URL`, currently a stub — would hook into
+`Scheduler.RunAttempts`'s failure path in
+`scheduler/internal/scheduler/runner.go`, not the dashboard), actually
+publishing the Railway Template and running `fly launch` (both need the
+repo owner's own account — see the "Docker packaging" section above), CI to
+publish a prebuilt image to a registry, and digest-pinning the distroless
+base image. Don't start any of these without checking in with the user
+first.
