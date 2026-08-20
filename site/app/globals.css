@@ -194,19 +194,13 @@ a {
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  font-size: 1.05rem;
   text-decoration: none;
   color: var(--fg);
 }
 
-.wordmark .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-glow);
+.wordmark img {
+  display: block;
+  height: auto;
 }
 
 .header-actions {
@@ -222,6 +216,12 @@ a {
   text-align: center;
   position: relative;
   z-index: 1;
+}
+
+/* Tailwind-scale utility (0.25rem per unit) — not a Tailwind install, just
+   matching its semantics for the one utility class used in markup. */
+.mt-10 {
+  margin-top: 2.5rem;
 }
 
 .badge {
