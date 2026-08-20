@@ -1,0 +1,28 @@
+# Generated for `fly launch`/`fly deploy`. The app name below is a
+# placeholder — Fly requires globally-unique app names, so rename it (or
+# let `fly launch` prompt you) before your first deploy.
+app = "cronify-scheduler"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  path = "/healthz"
+  interval = "30s"
+  timeout = "5s"
+  method = "GET"
+
+[mounts]
+  source = "cronify_data"
+  destination = "/data"
+
+[env]
+  CRONIFY_PORT = "8080"
+  CRONIFY_DB_PATH = "/data/cronify.db"

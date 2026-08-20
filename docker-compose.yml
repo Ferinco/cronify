@@ -1,0 +1,13 @@
+services:
+  scheduler:
+    build: ./scheduler
+    ports:
+      - "8080:8080"
+    environment:
+      CRONIFY_ADMIN_TOKEN: ${CRONIFY_ADMIN_TOKEN:?set CRONIFY_ADMIN_TOKEN in the environment or a .env file}
+    volumes:
+      - cronify-data:/data
+    restart: unless-stopped
+
+volumes:
+  cronify-data:
