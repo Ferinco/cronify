@@ -2,7 +2,7 @@ services:
   - type: web
     name: cronify-scheduler
     runtime: docker
-    plan: starter
+    plan: free
     rootDir: scheduler
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -13,7 +13,3 @@ services:
         sync: false
       - key: CRONIFY_PORT
         value: "8080"
-    disk:
-      name: cronify-data
-      mountPath: /data
-      sizeGB: 1
