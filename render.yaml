@@ -13,7 +13,7 @@ services:
         sync: false
       - key: CRONIFY_PORT
         value: "8080"
-    disks:
-      - name: cronify-data
-        mountPath: /data
-        sizeGB: 1
+    disk:
+      name: cronify-data
+      mountPath: /data
+      sizeGB: 1
