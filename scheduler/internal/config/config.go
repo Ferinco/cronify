@@ -63,6 +63,20 @@ func Load() (Config, error) {
 	}, nil
 }
 
+// weakAdminTokenLength is the threshold below which AdminToken is treated as
+// a brute-force risk once this deployment is reachable from anywhere but
+// localhost. A real random token (e.g. `openssl rand -hex 32`, 64 chars) is
+// nowhere near this; short, memorable values like "dev" are.
+const weakAdminTokenLength = 20
+
+// WeakAdminToken reports whether AdminToken is short enough to be worth
+// warning about. Deliberately a soft signal the caller logs, not a load
+// failure — scheduler/README.md's own local-run quickstart recommends
+// CRONIFY_ADMIN_TOKEN=dev, and that must keep working unmodified.
+func (c Config) WeakAdminToken() bool {
+	return len(c.AdminToken) < weakAdminTokenLength
+}
+
 func intEnv(name string, def int) (int, error) {
 	v := os.Getenv(name)
 	if v == "" {

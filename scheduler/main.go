@@ -33,6 +33,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if cfg.WeakAdminToken() {
+		slog.Warn("cronify: CRONIFY_ADMIN_TOKEN is short — fine for local development, but generate a long random value (e.g. `openssl rand -hex 32`) before this deployment is reachable from anywhere but localhost")
+	}
 
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
