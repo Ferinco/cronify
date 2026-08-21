@@ -23,4 +23,9 @@ type Handlers struct {
 	Store      *store.Store
 	Runner     Runner
 	AdminToken string
+
+	// loginThrottle backs withBasicAuth's failed-attempt throttling (see
+	// middleware.go). Left nil in struct literals — throttle() lazily
+	// allocates it on first use.
+	loginThrottle *loginThrottle
 }
