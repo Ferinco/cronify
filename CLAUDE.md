@@ -194,7 +194,23 @@ Two separate secrets — do not conflate them:
   auto-attach them to same-origin requests, including ones triggered by
   another site the admin has open (a CSRF-shaped risk) — accepted for a
   single/few-admin self-hosted tool, not relevant at the scale this project
-  is scoped for.
+  is scoped for. Username is read but never checked — it only strengthens
+  auth if it's itself a secret, and if it were, it'd just be a weaker way of
+  doing what one strong `CRONIFY_ADMIN_TOKEN` already does; the real gate is
+  the password matching the token.
+
+  Nothing enforces the token's strength beyond "non-empty" — a real
+  `openssl rand -hex 32` value and `CRONIFY_ADMIN_TOKEN=dev` (this doc's own
+  local-run example, and the scheduler README's) are equally valid to
+  `config.Load()`. Two mitigations for that, both in
+  `scheduler/internal/dashboard/`: `middleware.go`'s `loginThrottle` delays
+  repeated failed dashboard logins per source IP (250ms doubling to a 4s
+  cap, reset on success or after 5 minutes idle — a slowdown, not a lockout,
+  since an outright lockout would let an attacker deny the real admin access
+  just by failing login from wherever the admin's own traffic appears to
+  originate); and `config.WeakAdminToken()` logs a startup `WARN` (not a
+  load failure, so `CRONIFY_ADMIN_TOKEN=dev` keeps working) if the token is
+  under 20 characters.
 
 How the scheduler learns each app's `CRON_SECRET` (this was still open when
 `packages/cronify` was built — resolved when the scheduler was built): sent
