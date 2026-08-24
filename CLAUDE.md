@@ -515,6 +515,19 @@ just the Go binary + CA cert bundle).
 - **Build context is `scheduler/`, not the repo root** — keeps the context
   small (doesn't send `packages/cronify/node_modules`, `site/node_modules`,
   etc. to the daemon) and matches "each piece builds independently."
+- **The distroless base is digest-pinned**
+  (`gcr.io/distroless/static-debian12:nonroot@sha256:afa5c8...`, full digest
+  in the Dockerfile) so a rebuild can't silently pull a new base image out
+  from under this file — the `:nonroot` tag is kept alongside the digest
+  purely for human readability, it isn't what Docker actually resolves
+  against. Pinned to the **multi-arch index** digest (from `docker-content-digest`
+  on a manifest-list-Accept'd registry request), not one platform's
+  child-manifest digest, so `linux/amd64`/`linux/arm64` builds both still
+  resolve correctly through the same pin. Bumping it deliberately needs
+  re-resolving and re-verifying the new digest still means what's expected
+  — see the Dockerfile's own comment for the exact command. Verified by
+  building the pinned Dockerfile end-to-end (see below) and confirming the
+  pulled digest matched.
 - **Verified end-to-end** (`docker build`, `docker run` with a named
   volume, `docker compose up`) via Colima + the Homebrew `docker`/
   `docker-compose` CLIs, not Docker Desktop — Docker Desktop 4.51.0 can't

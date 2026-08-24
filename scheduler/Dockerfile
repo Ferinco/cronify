@@ -11,7 +11,14 @@ RUN mkdir -p /data && \
 # scheduler fires an HTTPS job route, plus a working non-root user (65532)
 # out of the box. No shell -> no Dockerfile HEALTHCHECK; platform configs
 # (render.yaml/railway.json/fly.toml) each point at GET /healthz instead.
-FROM gcr.io/distroless/static-debian12:nonroot
+# Digest-pinned (in addition to the :nonroot tag, kept for readability) so a
+# rebuild can't silently pull a new base image out from under this file; the
+# digest is the multi-arch index, so amd64/arm64 both still resolve correctly.
+# Bump deliberately: reresolve with
+#   crane digest gcr.io/distroless/static-debian12:nonroot
+# or the equivalent `docker buildx imagetools inspect`, verify the new tag
+# still means what you expect, then update both the tag and digest together.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 # /data must be created by this chowned COPY, not by WORKDIR: WORKDIR's
 # auto-mkdir always runs as root regardless of the image's default USER, so
 # a `WORKDIR /data` here first would silently leave the directory
