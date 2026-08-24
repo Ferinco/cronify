@@ -1,0 +1,59 @@
+name: Publish scheduler image
+
+# Builds scheduler/Dockerfile and pushes to GHCR. This is the "prebuilt image"
+# follow-up from CLAUDE.md's Next steps: previously users had to build their
+# own image from source. Out of scope until now, not part of any numbered
+# build-order step.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "scheduler/**"
+      - ".github/workflows/publish-scheduler-image.yml"
+  workflow_dispatch: {}
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/cronify-scheduler
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Lowercased explicitly: GHCR rejects mixed-case repo paths, and
+      # github.repository_owner isn't guaranteed lowercase (org/user names
+      # can contain uppercase letters).
+      - id: image
+        run: echo "name=${IMAGE_NAME,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: scheduler
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

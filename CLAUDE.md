@@ -464,6 +464,17 @@ Notable choices, in case they look surprising later:
   Covered by `scheduler_test.go`'s `TestTriggerRunFiresWebhookOnExhaustion`,
   `TestTriggerRunNoWebhookOnSuccess`, and
   `TestTriggerRunNoWebhookWhenURLUnset`.
+- **CI publishes a prebuilt multi-arch image to GHCR**
+  (`.github/workflows/publish-scheduler-image.yml`, `ghcr.io/<owner>/cronify-scheduler`),
+  on push to `main` touching `scheduler/**` and on `v*` tags — closes out
+  the "Explicitly out of scope for v1" item about publishing a prebuilt
+  Docker image. Uses `docker/build-push-action` + QEMU/buildx for
+  `linux/amd64,linux/arm64` in one job, authenticating with the workflow's
+  own `GITHUB_TOKEN` (needs `packages: write`, granted via the job's
+  `permissions:` block) — no separately-provisioned registry credential
+  needed. Image ref is lowercased explicitly (`${IMAGE_NAME,,}`) since GHCR
+  rejects mixed-case repository paths and `github.repository_owner` isn't
+  guaranteed lowercase.
 
 Build/test commands (run from `scheduler/`):
 
@@ -562,19 +573,15 @@ serverless function.
 No hosted/SaaS version, no multi-region scheduler, no workflow/step
 orchestration (that's Inngest/Trigger.dev territory — this is scheduling +
 retries + locking only), no auth provider for the dashboard beyond a shared
-token. Also out of scope, not part of any numbered build-order step:
-publishing a prebuilt Docker image to a registry (GHCR/Docker Hub) via CI —
-users build their own image for now.
+token.
 
 ## Next steps
 
-All five numbered build-order steps are done. What's left is entirely
-optional polish, none of it blocking: webhook failure alerting
-(`CRONIFY_WEBHOOK_URL`, currently a stub — would hook into
-`Scheduler.RunAttempts`'s failure path in
-`scheduler/internal/scheduler/runner.go`, not the dashboard), actually
-publishing the Railway Template and running `fly launch` (both need the
-repo owner's own account — see the "Docker packaging" section above), CI to
-publish a prebuilt image to a registry, and digest-pinning the distroless
-base image. Don't start any of these without checking in with the user
-first.
+All five numbered build-order steps are done. Webhook failure alerting,
+digest-pinning the distroless base image, and CI publishing a prebuilt
+image to a registry (all previously listed here as optional polish) are
+now done too — see the "scheduler" and "Docker packaging" implementation
+notes above. What's left needs the repo owner's own account, not more
+code: actually publishing the Railway Template and running `fly launch`
+(see the "Docker packaging" section above). Don't start either without
+checking in with the user first.

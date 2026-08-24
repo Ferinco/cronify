@@ -53,6 +53,16 @@ docker run -p 8080:8080 -e CRONIFY_ADMIN_TOKEN=<token> -v cronify-data:/data cro
 Or from the repo root: `docker compose up -d` (`docker-compose.yml` reuses
 this Dockerfile, reads `CRONIFY_ADMIN_TOKEN` from the environment).
 
+Or skip the local build entirely and pull the prebuilt multi-arch
+(amd64/arm64) image: CI
+([`.github/workflows/publish-scheduler-image.yml`](../.github/workflows/publish-scheduler-image.yml))
+publishes it to GHCR on every push to `main` that touches `scheduler/`, plus
+on version tags:
+
+```sh
+docker run -p 8080:8080 -e CRONIFY_ADMIN_TOKEN=<token> -v cronify-data:/data ghcr.io/<owner>/cronify-scheduler:latest
+```
+
 ### Render — real one-click button
 
 The repo-root [`render.yaml`](../render.yaml) Blueprint + the badge in the
