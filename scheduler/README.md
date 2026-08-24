@@ -68,7 +68,19 @@ docker run -p 8080:8080 -e CRONIFY_ADMIN_TOKEN=<token> -v cronify-data:/data ghc
 The repo-root [`render.yaml`](../render.yaml) Blueprint + the badge in the
 [repo README](../README.md) work with zero setup beyond the repo being
 public — Render reads `render.yaml`, builds this Dockerfile, and prompts for
-`CRONIFY_ADMIN_TOKEN` at deploy time.
+`CRONIFY_ADMIN_TOKEN` at deploy time. `main`'s `render.yaml` uses `plan:
+starter` with a persistent disk mounted at `/data` — the real default,
+since without it `cronify.db` (and all job/run history) is wiped on every
+restart or redeploy.
+
+**No-cost trial variant:** the `render-trial-free` branch has a `plan: free`
+`render.yaml` with the `disk` block removed — Render's free instances don't
+support persistent disks, so this deploys with no billing info attached, at
+the cost of job/run history not surviving restarts. Use it to kick the tires
+before committing to a paid plan: deploy that branch's `render.yaml` via
+Render's Blueprint flow (or point the "Deploy to Render" flow at that branch
+instead of `main`), then switch to `main`'s `starter` + disk config once
+you're ready for durable storage.
 
 ### Railway — config ready, real badge needs one manual step
 

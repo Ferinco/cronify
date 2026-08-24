@@ -561,6 +561,13 @@ defaults to the repo root; `rootDir: scheduler` on the service scopes the
 actual build/deploy to that subdirectory. `autoDeploy: false` per Render's
 own stated guidance for Deploy-to-Render buttons, so pushes to a deployer's
 fork don't silently redeploy every instance created via the button.
+`main`'s `render.yaml` uses `plan: starter` with a persistent disk — the
+real default. A separate unmerged branch, `render-trial-free`, carries a
+`plan: free` variant with the `disk` block removed (Render's free instances
+don't support persistent disks), for a no-cost trial deploy at the cost of
+job/run history not surviving restarts; documented in
+`scheduler/README.md`'s Deploy section rather than merged, so `main` keeps
+the durable-storage config as what the badge actually deploys.
 
 `scheduler/fly.toml`: `auto_stop_machines = "off"` (string, not boolean —
 Fly's current schema) and `min_machines_running = 1` deliberately. Fly's
@@ -581,7 +588,8 @@ All five numbered build-order steps are done. Webhook failure alerting,
 digest-pinning the distroless base image, and CI publishing a prebuilt
 image to a registry (all previously listed here as optional polish) are
 now done too — see the "scheduler" and "Docker packaging" implementation
-notes above. What's left needs the repo owner's own account, not more
-code: actually publishing the Railway Template and running `fly launch`
-(see the "Docker packaging" section above). Don't start either without
-checking in with the user first.
+notes above. The `render-trial-free` free-tier deploy option is documented
+in `scheduler/README.md`. What's left needs the repo owner's own account,
+not more code: actually publishing the Railway Template and running `fly
+launch` (see the "Docker packaging" section above). Don't start either
+without checking in with the user first.
