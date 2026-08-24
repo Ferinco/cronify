@@ -23,8 +23,11 @@ Other env vars (all optional, see CLAUDE.md's "Env var naming" for the full
 list and defaults): `CRONIFY_PORT`, `CRONIFY_DB_PATH`,
 `CRONIFY_TICK_INTERVAL_SECONDS`, `CRONIFY_DEFAULT_TIMEOUT_SECONDS`,
 `CRONIFY_DEFAULT_MAX_ATTEMPTS`, `CRONIFY_STALE_LOCK_TIMEOUT_SECONDS`,
-`CRONIFY_WEBHOOK_URL` (loaded but not yet acted on — failure alerting isn't
-built yet).
+`CRONIFY_WEBHOOK_URL` (if set, a job whose run exhausts every attempt POSTs
+a `{"event":"job.failed", "jobId", "source", "route", "appUrl", "runId",
+"attempts", "error"}` JSON body here; delivery is best-effort — a broken
+webhook endpoint is logged, never affects the run's own bookkeeping or
+retry behavior).
 
 ## Build / test
 

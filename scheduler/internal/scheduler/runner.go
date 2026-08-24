@@ -1,7 +1,9 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -77,6 +79,7 @@ func (s *Scheduler) RunAttempts(ctx context.Context, job model.Job, runID int64)
 			if err := s.Store.FinishRun(ctx, runID, model.StatusFailed, httpStatus, &errMsg, finishedAt); err != nil {
 				return fmt.Errorf("finish run: %w", err)
 			}
+			s.fireWebhook(job, runID, attempt, errMsg)
 			break
 		}
 
@@ -119,4 +122,69 @@ func (s *Scheduler) fireOnce(ctx context.Context, job model.Job) (success bool, 
 		return false, &status, fmt.Errorf("unexpected status %d", status)
 	}
 	return true, &status, nil
+}
+
+// webhookPayload is the body POSTed to CRONIFY_WEBHOOK_URL. Fields mirror model.Job's
+// JSON tags where they overlap, so a consumer already parsing /api/v1/jobs responses
+// recognizes the shape.
+type webhookPayload struct {
+	Event    string `json:"event"` // always "job.failed" for now — the only alert this fires
+	JobID    string `json:"jobId"`
+	Source   string `json:"source"`
+	Route    string `json:"route"`
+	AppURL   string `json:"appUrl"`
+	RunID    int64  `json:"runId"`
+	Attempts int    `json:"attempts"` // attempts actually made == job.MaxAttempts, since this only fires on exhaustion
+	Error    string `json:"error"`
+}
+
+// webhookTimeout bounds fireWebhook's own request, independent of the job's configured
+// TimeoutSeconds (that budget was already spent on the job route itself) and of ctx
+// (which may be near cancellation on shutdown by the time a run finishes).
+const webhookTimeout = 10 * time.Second
+
+// fireWebhook notifies CRONIFY_WEBHOOK_URL, if configured, that a run exhausted every
+// attempt. Best-effort: delivery failures are logged, never returned — a broken webhook
+// endpoint must not affect job_runs bookkeeping or retry behavior, which are already
+// finalized by the time this is called.
+func (s *Scheduler) fireWebhook(job model.Job, runID int64, attempts int, errMsg string) {
+	if s.WebhookURL == "" {
+		return
+	}
+
+	body, err := json.Marshal(webhookPayload{
+		Event:    "job.failed",
+		JobID:    job.ID,
+		Source:   job.Source,
+		Route:    job.Route,
+		AppURL:   job.AppURL,
+		RunID:    runID,
+		Attempts: attempts,
+		Error:    errMsg,
+	})
+	if err != nil {
+		slog.Error("cronify: failed to encode webhook payload", "job", job.ID, "error", err)
+		return
+	}
+
+	reqCtx, cancel := context.WithTimeout(context.Background(), webhookTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, s.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		slog.Error("cronify: failed to build webhook request", "job", job.ID, "error", err)
+		return
+	}
+	req.Header.Set("content-type", "application/json")
+
+	resp, err := s.HTTPClient.Do(req)
+	if err != nil {
+		slog.Warn("cronify: webhook delivery failed", "job", job.ID, "webhookUrl", s.WebhookURL, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("cronify: webhook endpoint returned non-2xx", "job", job.ID, "status", resp.StatusCode)
+	}
 }

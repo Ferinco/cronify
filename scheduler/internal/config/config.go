@@ -16,7 +16,7 @@ type Config struct {
 	DefaultTimeoutSeconds  int
 	DefaultMaxAttempts     int
 	StaleLockTimeoutSecs   int
-	WebhookURL             string // optional, stub-only for this pass
+	WebhookURL             string // optional; POSTed to on run failure, see scheduler.Scheduler.WebhookURL
 }
 
 func Load() (Config, error) {

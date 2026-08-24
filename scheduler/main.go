@@ -51,6 +51,7 @@ func run() error {
 	}
 
 	sched := scheduler.New(st, cfg.TickInterval, time.Duration(cfg.StaleLockTimeoutSecs)*time.Second)
+	sched.WebhookURL = cfg.WebhookURL
 	go sched.Run(ctx)
 
 	mux := http.NewServeMux()

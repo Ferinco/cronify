@@ -37,9 +37,9 @@ are done** — `packages/cronify` (including `withLock()`), the Go scheduler
 HTML dashboard, and Docker packaging (Dockerfile + Render/Railway/Fly.io
 configs) are all built. The marketing site (`site/`) is also built, though
 it sits outside the numbered build order (see the "Four pieces" note
-above). Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) remains a stub —
-deferred as a small separate follow-up, not part of any numbered
-build-order step.
+above). Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) is also built —
+see "Webhook failure alerting" under the scheduler implementation notes
+below.
 
 **Of the three "one-click deploy" targets, only Render's badge actually
 works with zero setup.** Researched this before building rather than
@@ -449,6 +449,21 @@ Notable choices, in case they look surprising later:
   page file parses last "win" for every page regardless of which one is
   being rendered. Hit this directly during implementation (every page
   rendered as the job-detail page) before splitting the parse per page.
+- **Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) fires only once a run
+  exhausts every attempt**, from `Scheduler.RunAttempts`'s final-failure
+  branch in `scheduler/internal/scheduler/runner.go` (`fireWebhook`) — never
+  on an individual attempt that still has retries left, and never on
+  success. Best-effort by design: delivery uses its own 10s timeout
+  (independent of both the job's `TimeoutSeconds`, already spent on the job
+  route itself, and the run's own `ctx`, which may be near cancellation on
+  shutdown by the time a run finishes) and logs failures via `slog` rather
+  than returning an error — a broken webhook endpoint must not affect
+  `job_runs` bookkeeping or retry behavior, both already finalized by the
+  time `fireWebhook` runs. Body:
+  `{"event":"job.failed","jobId","source","route","appUrl","runId","attempts","error"}`.
+  Covered by `scheduler_test.go`'s `TestTriggerRunFiresWebhookOnExhaustion`,
+  `TestTriggerRunNoWebhookOnSuccess`, and
+  `TestTriggerRunNoWebhookWhenURLUnset`.
 
 Build/test commands (run from `scheduler/`):
 

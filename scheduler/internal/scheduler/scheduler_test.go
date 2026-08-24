@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -238,6 +240,94 @@ func TestTriggerRunExhaustsMaxAttempts(t *testing.T) {
 	}
 	if runs[0].Status != model.StatusFailed || runs[0].Attempt != 3 {
 		t.Fatalf("expected a failed run row with attempt=3 (the last one tried), got %+v", runs[0])
+	}
+}
+
+func TestTriggerRunFiresWebhookOnExhaustion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	var hookBody []byte
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("content-type"); got != "application/json" {
+			t.Errorf("unexpected content-type: %q", got)
+		}
+		hookBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hookSrv.Close()
+
+	st := newTestStore(t)
+	s := testScheduler(st)
+	s.WebhookURL = hookSrv.URL
+	job := testJob("job-webhook-fail", srv.URL)
+	job.MaxAttempts = 2
+
+	if _, err := s.TriggerRun(context.Background(), job); err == nil {
+		t.Fatalf("expected an error after exhausting attempts")
+	}
+
+	if hookBody == nil {
+		t.Fatalf("expected the webhook endpoint to have been called")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(hookBody, &payload); err != nil {
+		t.Fatalf("unmarshal webhook body: %v", err)
+	}
+	if payload["event"] != "job.failed" {
+		t.Errorf("event = %v, want %q", payload["event"], "job.failed")
+	}
+	if payload["jobId"] != job.ID {
+		t.Errorf("jobId = %v, want %q", payload["jobId"], job.ID)
+	}
+	if payload["attempts"] != float64(2) {
+		t.Errorf("attempts = %v, want 2", payload["attempts"])
+	}
+}
+
+func TestTriggerRunNoWebhookOnSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	var hookCalled bool
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hookCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hookSrv.Close()
+
+	st := newTestStore(t)
+	s := testScheduler(st)
+	s.WebhookURL = hookSrv.URL
+	job := testJob("job-webhook-success", srv.URL)
+
+	if _, err := s.TriggerRun(context.Background(), job); err != nil {
+		t.Fatalf("TriggerRun: %v", err)
+	}
+	if hookCalled {
+		t.Fatalf("webhook must not fire on a run that ultimately succeeds")
+	}
+}
+
+func TestTriggerRunNoWebhookWhenURLUnset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	st := newTestStore(t)
+	s := testScheduler(st) // WebhookURL left empty
+	job := testJob("job-webhook-unset", srv.URL)
+	job.MaxAttempts = 1
+
+	// Nothing to assert against directly since there's no hook server — this just
+	// confirms fireWebhook's early return doesn't panic or block when unset.
+	if _, err := s.TriggerRun(context.Background(), job); err == nil {
+		t.Fatalf("expected an error after exhausting attempts")
 	}
 }
 

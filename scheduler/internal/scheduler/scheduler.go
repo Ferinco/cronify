@@ -17,6 +17,7 @@ type Scheduler struct {
 	StaleLockTimeout time.Duration // default; effective-per-job is max(this, job.TimeoutSeconds)
 	TickInterval     time.Duration
 	MaxInFlight      int
+	WebhookURL       string // optional; POSTed to when a run exhausts all attempts, see runner.go's fireWebhook
 }
 
 func New(st *store.Store, tickInterval, staleLockTimeout time.Duration) *Scheduler {
