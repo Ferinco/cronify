@@ -11,8 +11,7 @@ platforms — retries and overlap protection on top of a plain cron ping.
 - [`packages/cronify`](packages/cronify) — the TypeScript package
   (`defineJob()`, route generation, CLI) — **implemented**
 - [`scheduler`](scheduler) — the Go scheduler + dashboard —
-  **implemented**, see its README for Docker/Railway/Fly.io/Render deploy
-  instructions
+  **implemented**, see its README for Docker/Render deploy instructions
 - [`site`](site) — the marketing one-pager — **implemented**
 
 License: MIT.

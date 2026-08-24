@@ -82,29 +82,11 @@ Render's Blueprint flow (or point the "Deploy to Render" flow at that branch
 instead of `main`), then switch to `main`'s `starter` + disk config once
 you're ready for durable storage.
 
-### Railway — config ready, real badge needs one manual step
-
-[`railway.json`](railway.json) gives correct build/deploy settings the
-moment you connect the repo: **New Project → Deploy from GitHub repo → set
-Root Directory to `scheduler`**, then add `CRONIFY_ADMIN_TOKEN` and a volume
-mounted at `/data` in the Railway dashboard. A real "Deploy on Railway"
-badge additionally requires *publishing a Railway Template* from your own
-account (Railway dashboard → Templates → generate from this project →
-Publish) — that's an account-linked action only you can do, so it's not
-wired up automatically here.
-
-### Fly.io — config ready, no stable badge mechanism exists
-
-Fly doesn't currently have a Render-style static README badge. Deploy via
-their CLI instead:
-
-```sh
-fly launch --no-deploy   # confirms the app without overwriting fly.toml
-fly secrets set CRONIFY_ADMIN_TOKEN=<token>
-fly deploy
-```
-
-[`fly.toml`](fly.toml) pins `auto_stop_machines = "off"` and
-`min_machines_running = 1` deliberately — Fly's default scale-to-zero would
-kill the tick loop, defeating the entire point of this being an always-on
-process.
+Render is the only deploy target this repo carries config for — Railway and
+Fly.io configs (`railway.json`, `fly.toml`) were dropped since Render's
+badge was the only one of the three that actually worked with zero setup
+(no account-linked step, see git history pre-dating this if reviving
+either). Nothing stops deploying this image anywhere else Docker runs — the
+`docker build`/`docker run` commands above work unchanged on Railway, Fly,
+or any other host, there just isn't a maintained platform-specific config
+or badge for them here.

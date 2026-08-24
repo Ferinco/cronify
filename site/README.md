@@ -9,8 +9,10 @@ approach (see [`../CLAUDE.md`](../CLAUDE.md)).
 
 The "Self-host it" button currently links to
 [`scheduler/README.md`](../scheduler/README.md) — real, working self-host
-instructions today. It's meant to be swapped for a one-click Railway/Fly.io/
-Render deploy link once step 5 (Docker packaging) exists.
+instructions today. Step 5 (Docker packaging) is done and a real "Deploy to
+Render" badge exists (repo-root [`README.md`](../README.md)); swapping this
+button to link straight to that badge instead of the scheduler README is an
+open cosmetic TODO, not done yet.
 
 ## Develop
 

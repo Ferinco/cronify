@@ -65,7 +65,7 @@ Written in **Next.js** — this is the one piece where Next.js is genuinely the 
 | Scheduler + dashboard   | Go, SQLite, server-rendered HTML | Self-hosting simplicity is the core pitch         |
 | Marketing site          | Next.js                          | Static/content-focused, Next.js's actual strength |
 
-Packaging: Docker for the scheduler service, with one-click deploy buttons for Railway / Fly.io / Render.
+Packaging: Docker for the scheduler service, with a one-click deploy button for Render. (Railway and Fly.io were evaluated too; see CLAUDE.md — Render was kept as the only maintained deploy target.)
 
 ## Repo structure
 

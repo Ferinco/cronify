@@ -21,7 +21,7 @@ independently):
 cronify/
 ├── packages/cronify/   TypeScript — defineJob(), route generation, CLI  [BUILT]
 ├── scheduler/          Go — tick loop, SQLite, retries, locking, API, dashboard [BUILT]
-│                        + Dockerfile, railway.json, fly.toml [BUILT]
+│                        + Dockerfile [BUILT]
 ├── site/                Next.js — marketing one-pager [BUILT]
 ├── render.yaml           repo-root Render Blueprint (rootDir: scheduler)
 ├── docker-compose.yml     repo-root convenience wrapper around scheduler/Dockerfile
@@ -31,33 +31,34 @@ cronify/
 
 Build order (each step independently useful, per SPEC.md): (1) `defineJob()`
 + route generation, (2) standalone `withLock()` primitive, (3) the scheduler,
-(4) the dashboard, (5) Docker + one-click deploy buttons. **All five steps
-are done** — `packages/cronify` (including `withLock()`), the Go scheduler
-(tick loop, SQLite, retries, locking, full `/api/v1/*` API), the bundled
-HTML dashboard, and Docker packaging (Dockerfile + Render/Railway/Fly.io
-configs) are all built. The marketing site (`site/`) is also built, though
-it sits outside the numbered build order (see the "Four pieces" note
-above). Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) is also built —
-see "Webhook failure alerting" under the scheduler implementation notes
-below.
+(4) the dashboard, (5) Docker + a one-click Render deploy button. **All five
+steps are done** — `packages/cronify` (including `withLock()`), the Go
+scheduler (tick loop, SQLite, retries, locking, full `/api/v1/*` API), the
+bundled HTML dashboard, and Docker packaging (Dockerfile + Render config)
+are all built. The marketing site (`site/`) is also built, though it sits
+outside the numbered build order (see the "Four pieces" note above).
+Webhook failure alerting (`CRONIFY_WEBHOOK_URL`) is also built — see
+"Webhook failure alerting" under the scheduler implementation notes below.
 
-**Of the three "one-click deploy" targets, only Render's badge actually
-works with zero setup.** Researched this before building rather than
-guessing: Render's `render.com/deploy?repo=` mechanism is genuinely
-config-only (a `render.yaml` Blueprint + a static badge URL — no
-account-linked action needed by the repo owner beyond making the repo
-public). Railway's "Deploy on Railway" badge, by contrast, is only produced
-by publishing a **Railway Template** through Railway's own dashboard — an
-account action, not something a committed config file can produce on its
-own. Fly.io currently has no stable, documented static-badge mechanism at
-all (their supported flow is the `fly launch`/`fly deploy` CLI, or their
-dashboard's own GitHub-import UI). So: `railway.json` and `fly.toml` are
-both present and correct — connecting the repo through either platform's
-normal flow immediately picks up the right build/deploy settings — but
-turning either into an actual clickable README badge needs one further
-manual, account-linked step from whoever owns the deployed
-instance. See `scheduler/README.md`'s "Deploy" section for the exact
-steps.
+**Render is the only deploy target this repo carries config for, by
+deliberate choice, not oversight.** SPEC.md originally scoped one-click
+deploy buttons for Railway and Fly.io too; both were built
+(`railway.json`, `fly.toml`) and worked as build/deploy configs, but
+neither could produce an actual clickable README badge without a further
+manual, account-linked step from whoever owns the deployed instance —
+Railway's badge only comes from *publishing a Railway Template* through
+Railway's own dashboard, and Fly.io has no stable static-badge mechanism at
+all (its supported flow is the `fly launch`/`fly deploy` CLI, or its
+dashboard's own GitHub-import UI). Render's `render.com/deploy?repo=`
+mechanism, by contrast, is genuinely config-only — a `render.yaml`
+Blueprint + a static badge URL, no account-linked action needed. Given that
+gap, and that this project doesn't need three deploy targets to prove the
+point, `railway.json` and `fly.toml` were dropped and Render kept as the
+sole maintained target. Nothing stops deploying the Docker image to Railway
+or Fly by hand — see `scheduler/README.md`'s "Deploy" section — there's
+just no maintained platform-specific config or badge for them here anymore.
+(Pre-existing `railway.json`/`fly.toml` content is recoverable from git
+history if a badge for either is ever worth reviving.)
 
 ## Resolved design decisions
 
@@ -518,11 +519,11 @@ just the Go binary + CA cert bundle).
   showing `/data` as `65532 65532`, not `0 0`) and by a full run: sync a
   job, stop and recreate the container against the same named volume,
   confirm the job survived.
-- **No Dockerfile `HEALTHCHECK`** — no shell/curl to run one in. All three
-  platform configs (`render.yaml`, `railway.json`, `fly.toml`) instead point
-  at the existing `GET /healthz` endpoint at the platform-config level,
-  which is more portable across platforms than a Dockerfile-level directive
-  anyway.
+- **No Dockerfile `HEALTHCHECK`** — no shell/curl to run one in. `render.yaml`
+  instead points at the existing `GET /healthz` endpoint at the
+  platform-config level, which is more portable than a Dockerfile-level
+  directive anyway (and is how any other platform someone deploys this to
+  by hand should be pointed at it too).
 - **Build context is `scheduler/`, not the repo root** — keeps the context
   small (doesn't send `packages/cronify/node_modules`, `site/node_modules`,
   etc. to the daemon) and matches "each piece builds independently."
@@ -545,8 +546,9 @@ just the Go binary + CA cert bundle).
   launch on this machine's macOS 13.7.8 (`kLSIncompatibleSystemVersionErr`,
   too old for that Docker Desktop release). Colima runs the same `dockerd`
   in a lightweight Linux VM and produces byte-identical images from the
-  same Dockerfile, so this has no bearing on what Render/Railway/Fly.io
-  build server-side from the repo. Final image: ~25MB. One unrelated
+  same Dockerfile, so this has no bearing on what Render (or any other
+  platform someone points at this repo by hand) builds server-side. Final
+  image: ~25MB. One unrelated
   footgun hit *while* verifying, worth remembering for next time: an
   orphaned `go run .` scheduler process from an earlier manual test
   session was still running on the host and bound to port 8080, so the
@@ -569,11 +571,14 @@ job/run history not surviving restarts; documented in
 `scheduler/README.md`'s Deploy section rather than merged, so `main` keeps
 the durable-storage config as what the badge actually deploys.
 
-`scheduler/fly.toml`: `auto_stop_machines = "off"` (string, not boolean —
-Fly's current schema) and `min_machines_running = 1` deliberately. Fly's
-default scale-to-zero would kill the tick loop, which is the entire point
-of this being a self-hosted always-on process rather than another
-serverless function.
+If deploying by hand to a platform that isn't Render (Fly.io, Railway, a
+bare VM, etc.), remember: this process must stay **always-on**, not
+scale-to-zero. Fly in particular defaults new apps to scale-to-zero, which
+would kill the tick loop — the entire point of this being a self-hosted
+always-on process rather than another serverless function. (`fly.toml`
+used to pin `auto_stop_machines = "off"` and `min_machines_running = 1` to
+guard against exactly that before it was dropped along with Railway's
+config — see the "Render is the only deploy target" note above.)
 
 ## Explicitly out of scope for v1 (per SPEC.md)
 
@@ -584,12 +589,16 @@ token.
 
 ## Next steps
 
-All five numbered build-order steps are done. Webhook failure alerting,
-digest-pinning the distroless base image, and CI publishing a prebuilt
-image to a registry (all previously listed here as optional polish) are
-now done too — see the "scheduler" and "Docker packaging" implementation
-notes above. The `render-trial-free` free-tier deploy option is documented
-in `scheduler/README.md`. What's left needs the repo owner's own account,
-not more code: actually publishing the Railway Template and running `fly
-launch` (see the "Docker packaging" section above). Don't start either
-without checking in with the user first.
+All five numbered build-order steps are done, and so is every item
+previously listed here as optional polish: webhook alerting, CI image
+publishing, and the distroless digest pin are all built (see the
+"scheduler" and "Docker packaging" implementation notes above); the
+`render-trial-free` free-tier deploy option is documented in
+`scheduler/README.md`. Railway and Fly.io support was deliberately dropped
+in favor of Render-only (see "Render is the only deploy target this repo
+carries config for" above), so publishing a Railway Template and running
+`fly launch` are no longer things this project needs — not deferred, just
+out of scope now.
+
+Nothing outstanding. Don't start new work here without checking in with the
+user first.
